@@ -24,7 +24,7 @@
     "typecheck": "tsc -b",
     "test": "tsc -b && node --test lib/test/stats.test.ts lib/test/personality.test.ts lib/test/postgres.test.ts lib/test/lib-units.test.ts lib/test/vault.test.ts lib/test/health-import.test.ts lib/test/finance-import.test.ts lib/test/ics.test.ts lib/test/hygiene.test.ts && node scripts/commons-tally.test.mjs",
     "test:commons": "node scripts/commons-tally.test.mjs",
-    "test:hooks": "bash scripts/hooks/test-guard.sh",
+    "test:hooks": "bash scripts/hooks/test-guard.sh && bash scripts/hooks/test-web-privacy.sh",
     "test:db": "tsc -b && node --env-file=.env --test lib/test/integration.test.ts",
     "eval": "node evals/runner.mjs",
     "eval:live": "node evals/runner.mjs --mode live --judge",
