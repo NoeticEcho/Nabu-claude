@@ -1617,6 +1617,10 @@ function cmdInstallService() {
   // r-deploy: сервис должен читать ТОТ ЖЕ .env, что и установка (иначе systemd берёт
   // REPO_ROOT/.env вместо деплойного — бот не стартует, БД не та). Захватываем текущий ENV_PATH.
   const envLine = `NABU_ENV_PATH=${ENV_PATH}`;
+  // PATH сервиса: systemd/launchd дают минимальный PATH без ~/.local/bin и nvm → claude/ollama
+  // не находятся, обмен падает ENOENT. Пробрасываем PATH установки + гарантируем ~/.local/bin.
+  const svcPath = `${join(homedir(), ".local", "bin")}:${process.env.PATH || "/usr/local/bin:/usr/bin"}`;
+  const pathLine = `PATH=${svcPath}`;
 
   if (os === "linux") {
     if (!has("systemctl")) die("Linux без systemd: запускайте `nabu start` вручную или через cron @reboot");
@@ -1631,6 +1635,7 @@ ExecStart=${process.execPath} ${cliPath} daemon
 Restart=on-failure
 Environment=NABU_HOME=${NABU_HOME}
 Environment=${envLine}
+Environment=${pathLine}
 
 [Install]
 WantedBy=default.target
@@ -1654,7 +1659,7 @@ WantedBy=default.target
     <string>${cliPath}</string>
     <string>daemon</string>
   </array>
-  <key>EnvironmentVariables</key><dict><key>NABU_HOME</key><string>${NABU_HOME}</string><key>NABU_ENV_PATH</key><string>${ENV_PATH}</string></dict>
+  <key>EnvironmentVariables</key><dict><key>NABU_HOME</key><string>${NABU_HOME}</string><key>NABU_ENV_PATH</key><string>${ENV_PATH}</string><key>PATH</key><string>${svcPath}</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>StandardOutPath</key><string>${LOG_FILE}</string>
