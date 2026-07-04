@@ -117,7 +117,11 @@ reg(
     }
     let res: Response;
     try {
-      res = await fetch(url, { headers, signal: AbortSignal.timeout(30_000), redirect: "follow" });
+      res = await fetch(url, { headers, signal: AbortSignal.timeout(30_000), redirect: "manual" });
+      if (res.status >= 300 && res.status < 400) {
+        // r3-M6: редиректы не следуем — upstream мог бы увести на внутренний хост (SSRF).
+        return degraded(`'${name}' ответил редиректом ${res.status} — редиректы запрещены (обновите base_url на конечный адрес)`, { status: res.status, location: res.headers.get("location") ?? undefined });
+      }
     } catch (e) {
       return fail(`Коннектор '${name}' недоступен: ${(e as Error).message}`);
     }
@@ -159,15 +163,25 @@ reg(
           `пользователя (кнопка в чате/TG) и передай approvalId сюда.`,
         );
       }
-      // Реальная проверка по БД (не на доверии к модели): одобрен И именно для этого вебхука.
+      // Реальная проверка по БД (не на доверии к модели) + r3-M5: АТОМАРНОЕ одноразовое
+      // потребление (used_at) и уважение expires_at — одно одобрение = ровно один запуск.
       const ns = await deps.pg.resolveNamespace(deps.namespace);
-      const row = await deps.pg.queryOne<{ status: string; action: string }>(
-        "select status, action from action_approval where id=$1 and namespace=$2",
-        [approvalId, ns],
+      const consumed = await deps.pg.queryOne<{ id: string }>(
+        `update action_approval set used_at = now()
+         where id = $1 and namespace = $2 and status = 'approved' and used_at is null
+           and action = $3 and (expires_at is null or expires_at > now())
+         returning id`,
+        [approvalId, ns, `trigger_webhook:${name}`],
       );
-      if (!row) return fail("approvalId не найден");
-      if (row.status !== "approved") return fail(`Approval в статусе '${row.status}' — нужен approved`);
-      if (row.action !== `trigger_webhook:${name}`) {
+      if (!consumed) {
+        const row = await deps.pg.queryOne<{ status: string; action: string; used_at: string | null; expires_at: string | null }>(
+          "select status, action, used_at, expires_at from action_approval where id=$1 and namespace=$2",
+          [approvalId, ns],
+        );
+        if (!row) return fail("approvalId не найден");
+        if (row.used_at) return fail("Approval уже использован (одноразовый) — запросите новый request_approval");
+        if (row.expires_at && new Date(row.expires_at) <= new Date()) return fail("Approval истёк — запросите новый");
+        if (row.status !== "approved") return fail(`Approval в статусе '${row.status}' — нужен approved`);
         return fail(`Approval выдан для '${row.action}', а не для 'trigger_webhook:${name}'`);
       }
     }
@@ -188,7 +202,8 @@ reg(
     let lastErr: string | null = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        res = await fetch(url, { method: "POST", headers, body: bodyStr, signal: AbortSignal.timeout(30_000) });
+        res = await fetch(url, { method: "POST", headers, body: bodyStr, signal: AbortSignal.timeout(30_000), redirect: "manual" });
+        if (res.status >= 300 && res.status < 400) { lastErr = `redirect ${res.status} запрещён (SSRF-защита)`; res = null; break; }
         if (res.status < 500) break;
         lastErr = `HTTP ${res.status}`;
       } catch (e) {
