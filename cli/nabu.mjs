@@ -23,8 +23,8 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { homedir, platform } from "node:os";
 import { createServer } from "node:net";
-import { createGzip } from "node:zlib";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, createReadStream } from "node:fs";
+import { createGunzip, createGzip } from "node:zlib";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..");
@@ -1216,7 +1216,7 @@ async function cmdBackup(flags = {}, log = (m) => info(m)) {
   }
 
   if (failed.length === 0 && made.length) {
-    ok(`Бэкап готов (${made.length} архив(а)) в ${outDir}. Восстановление: pg — gunzip|psql; typedb — tar в том; workspace — tar -xzf.`);
+    ok(`Бэкап готов (${made.length} архив(а)) в ${outDir}. Восстановление: nabu restore <каталог>.`);
   } else if (made.length) {
     warn(`Бэкап ЧАСТИЧНЫЙ: готово ${made.length}, провалено: ${failed.join(", ")} (${outDir})`);
   } else {
@@ -1299,6 +1299,89 @@ async function cmdImportFinance(args, flags) {
   } finally { await deps.pg.close().catch(() => { /* */ }); }
 }
 
+// ── restore: корректное восстановление из бэкапа (r4: «gunzip|psql в живую БД» давал
+// сотни конфликтов и частичную потерю — восстановление обязано быть командой) ──
+async function cmdRestore(args, flags) {
+  loadEnvIntoProcess();
+  const dir = args[0];
+  if (!dir || !existsSync(dir)) {
+    err(`Каталог бэкапа не найден: ${dir ?? "(не указан)"}. Использование: nabu restore <каталог-с-архивами>`);
+    process.exitCode = 1;
+    return;
+  }
+  const pick = (prefix) => readdirSync(dir).filter((f) => f.startsWith(prefix)).sort().pop();
+  let pg = pick("pg-");
+  let td = pick("typedb-");
+  const ws = pick("workspace-");
+  if (!pg && !td && !ws) { err("В каталоге нет архивов pg-*/typedb-*/workspace-*"); process.exitCode = 1; return; }
+
+  console.log(`\n${C.b}nabu restore${C.x} — план:`);
+  if (pg) console.log(`  • Postgres ← ${pg} (текущая БД будет ПОЛНОСТЬЮ заменена)`);
+  if (td) console.log(`  • TypeDB ← ${td} (том будет ПОЛНОСТЬЮ заменён)`);
+  if (ws) console.log(`  • Workspace ← ${ws} (файлы распакуются ПОВЕРХ ${NABU_HOME})`);
+  console.log("");
+  if (!(await confirm("ЗАМЕНИТЬ текущие данные содержимым бэкапа?", flags))) { info("Отменено"); return; }
+
+  cmdStop({});
+  const decryptIfEnc = async (name) => {
+    if (!name || !name.endsWith(".enc")) return name;
+    info(`Расшифровываю ${name}…`);
+    const raw = readFileSync(join(dir, name));
+    if (raw.subarray(0, 4).toString() !== "NBK1") throw new Error(`${name}: не формат NBK1`);
+    const { createDecipheriv } = await import("node:crypto");
+    const d = createDecipheriv("aes-256-gcm", backupKey(), raw.subarray(4, 16));
+    d.setAuthTag(raw.subarray(raw.length - 16));
+    const plain = Buffer.concat([d.update(raw.subarray(16, raw.length - 16)), d.final()]);
+    const out = name.replace(/\.enc$/, "");
+    writeFileSync(join(dir, out), plain);
+    return out;
+  };
+  pg = await decryptIfEnc(pg);
+  td = await decryptIfEnc(td);
+
+  const failedR = [];
+  // 1. Postgres: рвём коннекты → drop schema public cascade → заливаем дамп (он создаёт всё сам).
+  if (pg) {
+    if (!containerRunning("nabu-postgres")) { err("nabu-postgres не запущен — nabu init"); process.exitCode = 1; return; }
+    info("Postgres: очистка и восстановление…");
+    await shAsync("docker", ["exec", "nabu-postgres", "psql", "-h", "127.0.0.1", "-U", "nabu", "-d", "postgres", "-c",
+      "select pg_terminate_backend(pid) from pg_stat_activity where datname='nabu' and pid<>pg_backend_pid()"], { windowsHide: true });
+    const wipe = await shAsync("docker", ["exec", "nabu-postgres", "psql", "-h", "127.0.0.1", "-U", "nabu", "-d", "nabu", "-v", "ON_ERROR_STOP=1", "-c",
+      "drop schema public cascade; create schema public;"], { windowsHide: true });
+    if (wipe.code !== 0) { failedR.push("pg-wipe: " + wipe.errOut.slice(0, 150)); }
+    else {
+      const res = await new Promise((resDone) => {
+        const gz = spawn("docker", ["exec", "-i", "nabu-postgres", "psql", "-h", "127.0.0.1", "-U", "nabu", "-d", "nabu", "-q"], { windowsHide: true });
+        let errT = "";
+        gz.stderr.on("data", (d2) => { errT = (errT + d2).slice(-500); });
+        gz.on("close", (code) => resDone({ code, errT }));
+        gz.on("error", (e) => resDone({ code: -1, errT: e.message }));
+        createReadStream(join(dir, pg)).pipe(createGunzip()).pipe(gz.stdin);
+      });
+      if (res.code === 0 && !/ERROR/i.test(res.errT)) ok(`Postgres восстановлен из ${pg}`);
+      else failedR.push(`pg-restore (${res.errT.slice(0, 150)})`);
+    }
+  }
+  // 2. TypeDB: stop → wipe тома → untar → start.
+  if (td) {
+    info("TypeDB: замена тома…");
+    await shAsync("docker", ["stop", "nabu-typedb"], { windowsHide: true });
+    const r = await shAsync("docker", ["run", "--rm", "-v", "nabu_nabu-typedb:/data", "-v", `${resolve(dir)}:/backup:ro`, "alpine",
+      "sh", "-c", `rm -rf /data/* && tar xzf /backup/${td} -C /data`], { windowsHide: true });
+    await shAsync("docker", ["start", "nabu-typedb"], { windowsHide: true });
+    r.code === 0 ? ok(`TypeDB восстановлен из ${td}`) : failedR.push("typedb: " + r.errOut.slice(0, 150));
+  }
+  // 3. Workspace: поверх NABU_HOME.
+  if (ws) {
+    const r = await shAsync("tar", ["-xzf", join(dir, ws), "-C", NABU_HOME], { windowsHide: true });
+    r.code === 0 ? ok(`Workspace восстановлен из ${ws}`) : failedR.push("workspace: " + r.errOut.slice(0, 150));
+  }
+  if (failedR.length) { err(`Восстановление ЧАСТИЧНОЕ: ${failedR.join(" · ")}`); process.exitCode = 1; }
+  else ok("Восстановление завершено. Запустите: nabu start");
+}
+function containerRunning(name) {
+  return sh("docker", ["inspect", "--format", "{{.State.Running}}", name], { windowsHide: true }).out.includes("true");
+}
 // ── reset: стереть ДАННЫЕ и state, сохранив установку ──
 // Не трогает НИКОГДА: контент workspace (~/nabu/* — ваши заметки/md), ~/nabu/.backups,
 // .env (пароли и NABU_VAULT_KEY — их потеря = потеря vault и доступа к бэкапам) без --hard.
@@ -1494,6 +1577,7 @@ ${C.b}nabu${C.x} — zero-config запуск Nabu (ИИ-Совет на Claude 
   nabu version                       версия
   nabu install-service               автозапуск: systemd (Linux) · launchd (macOS) · Task Scheduler (Windows)
   nabu backup --encrypt              бэкап с AES-256-GCM (ключ NABU_VAULT_KEY); backup-decrypt <f.enc>
+  nabu restore <каталог>             восстановление из бэкапа (pg+typedb+workspace, с подтверждением)
   nabu import-health <файл>          импорт экспорта здоровья (Apple/Google Fit/CSV) в метрики
   nabu import-finance <csv>          импорт банковской выписки (локальная категоризация)
   nabu reset [--hard] [--dry-run]    стереть данные/стейт (установка и workspace сохраняются)
@@ -1507,6 +1591,7 @@ switch (cmd) {
   case "status": await cmdStatus(); break;
   case "logs": cmdLogs(flags, rest); break;
   case "backup-decrypt": await cmdBackupDecrypt(rest); break;
+  case "restore": await cmdRestore(rest, flags); break;
   case "backup": {
     const r = await cmdBackup(flags);
     if (r.failed.length) process.exitCode = 1; // честный код выхода при частичном/полном провале

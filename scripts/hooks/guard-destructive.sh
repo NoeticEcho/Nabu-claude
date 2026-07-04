@@ -102,8 +102,8 @@ if has 'docker[[:space:]]'; then
 fi
 # nabu reset/uninstall с флагами, подавляющими подтверждение, — только руками пользователя.
 if has 'nabu([[:space:]]|\.mjs[[:space:]])' || has 'nabu\.mjs'; then
-  if has '(reset|uninstall)([[:space:]]|$)'; then
-    { has '--yes' || has '--purge-workspace' || has '--hard'; } && deny "Заблокировано: nabu reset/uninstall с --yes/--purge-workspace/--hard из модели. Подтверждение — только у пользователя."
+  if has '(reset|uninstall|restore)([[:space:]]|$)'; then
+    { has '--yes' || has '--purge-workspace' || has '--hard'; } && deny "Заблокировано: nabu reset/uninstall/restore с --yes/--purge-workspace/--hard из модели. Подтверждение — только у пользователя."
   fi
 fi
 

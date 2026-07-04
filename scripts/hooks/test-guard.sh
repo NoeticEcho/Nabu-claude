@@ -90,6 +90,7 @@ check block "node cli/nabu.mjs uninstall --purge-workspace --yes"
 check block "nabu reset --yes"
 check block "nabu reset --hard --yes"
 check allow "nabu reset --dry-run"
+check block "nabu restore /backups --yes"
 check allow "nabu status"
 
 echo ""
