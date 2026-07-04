@@ -197,9 +197,9 @@ async function loadMessages(repoRoot, threadId, limit = 200, profile = "") {
   return rows.reverse().map((r) => ({ role: r.role, text: r.content, costUsd: r.cost_usd, at: r.created_at }));
 }
 
-async function deleteMessages(repoRoot, threadId) {
+async function deleteMessages(repoRoot, threadId, profile = "") {
   try {
-    const deps = await getLibDeps(repoRoot);
+    const deps = await getLibDeps(repoRoot, profile);
     const ns = await chatNs(deps);
     await deps.pg.query("delete from chat_message where namespace=$1 and thread_id=$2", [ns, threadId]);
   } catch { /* best-effort */ }
@@ -508,7 +508,9 @@ function runClaudeExchange({ res, claudeBin, repoRoot, message, resumeSessionId,
 
     child.on("error", (err) => {
       errored = true;
-      sseSend(res, { type: "error", message: `claude process error: ${err.message}` });
+      if (!(process.env.NABU_OFFLINE_FALLBACK === "1" && !fullText)) {
+        sseSend(res, { type: "error", message: `claude process error: ${err.message}` });
+      }
       finish();
     });
 
@@ -735,13 +737,15 @@ function createRequestHandler(opts) {
         }
         // Идемпотентность: повтор с тем же ключом (ретраи n8n/Zapier) не создаёт дубль.
         const idemKey = String(req.headers["x-nabu-idempotency-key"] || "");
+        let markIdem = null; // r3-M12: помечаем ключ только ПОСЛЕ успешной записи —
+        // иначе транзиентный сбой + ретрай = ложный duplicate и потерянный захват.
         if (idemKey) {
           const seen = hookIdempotency.get(name) ?? new Map();
           hookIdempotency.set(name, seen);
           const now = Date.now();
           for (const [k, t] of seen) if (now - t > 60 * 60 * 1000) seen.delete(k); // TTL 1ч
           if (seen.has(idemKey)) { sendJson(res, 200, { ok: true, duplicate: true }); return; }
-          if (seen.size < 10_000) seen.set(idemKey, now);
+          markIdem = () => { if (seen.size < 10_000) seen.set(idemKey, Date.now()); };
         }
         let body = {};
         try { body = JSON.parse(rawBody || "{}"); } catch { /* текст тоже примем ниже */ }
@@ -754,10 +758,12 @@ function createRequestHandler(opts) {
           if (hookCfg.action === "prospective") {
             const r = await deps.memory.addProspective({ intent: text.slice(0, 2000) });
             opts.log?.({ evt: "hook", name, action: "prospective", ok: true });
+            markIdem?.();
             sendJson(res, 200, { ok: true, id: r.id, action: "prospective" });
           } else {
             const r = await deps.notes.add({ title: (typeof body === "object" && body?.title ? String(body.title) : text).slice(0, 80), content: text, visibility: "private" });
             opts.log?.({ evt: "hook", name, action: "note", ok: true });
+            markIdem?.();
             sendJson(res, 200, { ok: true, id: r.id, action: "note" });
           }
         } catch (e) {
@@ -816,8 +822,10 @@ function createRequestHandler(opts) {
           sendJson(res, 400, { error: "missing_id" });
           return;
         }
+        // Профиль треда читаем ДО удаления из файла — иначе каскад бил бы в чужой namespace (r3-M10).
+        const delTh = (await readThreads(opts.nabuHome)).find((t) => t.id === id);
         const removed = await deleteThread(opts.nabuHome, id);
-        await deleteMessages(opts.repoRoot, id); // каскад в БД (внутри best-effort try/catch)
+        await deleteMessages(opts.repoRoot, id, delTh?.profile || ""); // каскад в БД (внутри best-effort try/catch)
         sendJson(res, removed ? 200 : 404, { ok: removed });
         return;
       }
@@ -939,8 +947,9 @@ function createRequestHandler(opts) {
         } catch (err) {
           opts.log?.({ evt: "stats_error", message: String(err.message).slice(0, 300) });
           const degraded = degradedStats(`статистика недоступна: ${err.message}`);
-          // Negative-cache: при аварии БД не гоняем импорт/коннект на каждый запрос дашборда.
-          statsCache = { at: Date.now(), data: degraded };
+          // Negative-cache — только для дефолтного пути: сбой ?profile= не должен
+          // отравлять общий дашборд (r3-M11).
+          if (!(url.searchParams.get("profile") || "")) statsCache = { at: Date.now(), data: degraded };
           sendJson(res, 200, degraded);
         }
         return;

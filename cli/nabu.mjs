@@ -146,7 +146,7 @@ function detectMode() {
 const composeArgs = (extra, profile = false) => ["compose", "-f", join(REPO_ROOT, "docker-compose.yml"), ...(profile ? ["--profile", "ollama"] : []), ...extra];
 function dockerAvailable() { return has("docker") && sh("docker", ["info"]).code === 0; }
 const readJson = (p, fallback) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return fallback; } };
-function writeJson(p, v) { const t = p + ".tmp"; writeFileSync(t, JSON.stringify(v, null, 2)); renameSync(t, p); }
+function writeJson(p, v) { const t = `${p}.${process.pid}.tmp`; writeFileSync(t, JSON.stringify(v, null, 2)); renameSync(t, p); } // uniq tmp: два процесса (демон+бот) не топчут один файл (r3-M13)
 const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 function daemonPid() { const pid = Number(readFileSync(PID_FILE, "utf8").trim() || 0); return pid && pidAlive(pid) ? pid : null; }
 const safeDaemonPid = () => { try { return daemonPid(); } catch { return null; } };

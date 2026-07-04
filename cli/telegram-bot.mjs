@@ -499,7 +499,9 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
         title = title.slice(0, m.index).trim();
         const d = new Date();
         if (/завтра/i.test(m[1])) d.setDate(d.getDate() + 1);
-        due = /\d{4}/.test(m[1]) ? m[1] : d.toISOString().slice(0, 10);
+        // Локальная дата (не toISOString/UTC): в +TZ около полуночи «завтра» съезжало на сегодня.
+        const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        due = /\d{4}/.test(m[1]) ? m[1] : local;
       }
       if (!title) { await reply(msg, "Пустая задача. Формат: !текст [@завтра|@YYYY-MM-DD]"); return; }
       const deps = await getDeps();
@@ -821,7 +823,7 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
       }
       st[jobName] = j;
       try {
-        const tmp = pf + ".tmp";
+        const tmp = `${pf}.${process.pid}.tmp`; // uniq tmp (r3-M13): демон пишет тот же файл
         writeFileSync(tmp, JSON.stringify(st, null, 2));
         renameSync(tmp, pf);
       } catch { /* best-effort */ }
