@@ -108,7 +108,7 @@ whisper (локально, `scripts/transcribe.py`, аудио — не «чис
 
 Узкие типизированные операции — через MCP-серверы плагина (`nabu-memory`, `nabu-pipeline`,
 `nabu-council`, `nabu-domain` для projects/tasks/goals/habits/quests/character_sheet/metric_*;
-`nabu-pipeline` для sources/claims; граф — через lib/TypeDB HTTP). Веб — нативные WebFetch/WebSearch. Высокорисковое (write/external/
+`nabu-pipeline` для sources/claims; граф — через lib/TypeDB HTTP). Веб — нативные `WebSearch`/`WebFetch` (в allowlist headless-сессий; без ключей). Приватность: в веб-запрос не кладётся private/vault — только обезличенный внешний вопрос. Высокорисковое (write/external/
 financial/destructive) — через `request_approval` + `log_action` (governance). Приватное
 (private/vault) — только локально (Ollama/Qwen), никогда в облако/логи.
 

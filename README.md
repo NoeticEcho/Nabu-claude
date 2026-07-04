@@ -56,6 +56,7 @@ schemas, pulls the embedding model and runs a smoke test. Idempotent — run it 
 | ⏰ **Scheduler** | Daily inbox triage, weekly digests, feedback follow-ups — headless agent runs whose results are **pushed to you** in Telegram. |
 | 💾 **Backups** | `nabu backup`: Postgres dump + TypeDB volume + workspace, retention 7, schedulable. |
 | 🔄 **Self-updating** | `nabu update` (git → build → restart); daily check, auto-apply opt-in. |
+| 🔎 **Web research** | Agents use Claude Code's native `WebSearch`/`WebFetch` (no API keys) for fresh external facts, woven into answers with sources. Private/vault data never enters a web query — only the de-identified question. |
 | 🩺 **Health import** | `nabu import-health` parses Apple Health / Google Fit / generic CSV exports **locally** (no OAuth, no cloud) into metric series — trends, forecasts and the health minister see your real dynamics. |
 | 💳 **Finance import** | `nabu import-finance` parses bank CSV statements locally: auto-detects RU/EN formats, categorizes spending (~15 rules), dedupes on re-import. The finance minister finally sees real numbers. |
 | 🔌 **Integrations** | Declare external APIs as **connectors** (GET-only, path allowlist) — 34 curated free APIs in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md); webhooks in/out (HMAC, replay-protected) connect n8n / Activepieces / Zapier. Outbound automations fire only after **your** approval. |

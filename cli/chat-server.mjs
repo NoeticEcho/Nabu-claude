@@ -26,6 +26,8 @@ const ALLOWED_TOOLS = [
   "mcp__nabu-improve",
   "mcp__nabu-voice",
   "mcp__nabu-connect",
+  "WebSearch",
+  "WebFetch",
   "Read",
   "Glob",
   "Grep",
