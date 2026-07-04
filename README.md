@@ -9,7 +9,7 @@
 [Русская версия →](README.ru.md) · [Лендинг (RU) →](docs/LANDING.md) · [Quick start](#quick-start) · [How it works](#how-it-works) · [Privacy](#privacy-by-architecture) · [Docs](docs/ZERO_CONFIG.md)
 
 Nabu is not another chatbot that forgets you after one message. It is a **team of
-specialised AI agents** — 9 domain "ministers", entrepreneur specialists and a 70+ agent processing pipeline —
+specialised AI agents** — 9 domain "ministers", entrepreneur specialists and a 73-agent roster —
 that see your life as a whole, remember everything you choose to tell them, debate
 hard questions collegially, and answer with honest trade-offs instead of averages.
 
@@ -128,7 +128,7 @@ Protocol, safety rules, and maintainer checklist: [docs/COMMONS.md](docs/COMMONS
 PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Ground rules in short:
 `cli/` stays zero-dependency; MCP tools stay narrow and typed; schemas stay
 additive; privacy invariants are non-negotiable; tests stay green
-(`npm test` — 34 unit, `npm run test:hooks` — 47 guard cases).
+(`npm test` — 70+ unit, `npm run test:hooks` — 47 guard cases).
 
 ## License
 

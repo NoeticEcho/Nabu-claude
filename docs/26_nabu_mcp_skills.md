@@ -1,5 +1,8 @@
 # NABU TOOLING
 
+> **Историческая спека.** Упоминания Supabase/облачных MCP относятся к shared-эре;
+> в v1.0 Nabu standalone-only — актуальные интерфейсы см. AGENT_INTEGRATION.md.
+
 *MCP Servers и Skills для разработки*  
 *Инструментарий для AI-driven разработки через Claude Code и Aperant*  
 *Tier-based приоритизация, конфигурации, custom servers для построения*  

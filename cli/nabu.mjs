@@ -778,6 +778,7 @@ async function pushToTelegram(text, log, jobName = null) {
   for (const [tid, t] of Object.entries(st?.topics ?? {})) {
     if (t?.role === "adjutant") { threadId = Number(tid); break; }
   }
+  let sentOk = true;
   for (let i = 0; i < text.length; i += 4000) {
     const isLast = i + 4000 >= text.length;
     // Кнопки обратной связи — на последнем сегменте проактивного push'а:
@@ -794,9 +795,10 @@ async function pushToTelegram(text, log, jobName = null) {
       body: JSON.stringify({ chat_id: chatId, text: text.slice(i, i + 4000), ...(threadId ? { message_thread_id: threadId } : {}), ...keyboard }),
       signal: AbortSignal.timeout(30_000),
     });
-    if (!res.ok) { log(`push: telegram ${res.status}`); break; }
+    if (!res.ok) { log(`push: telegram ${res.status}`); sentOk = false; break; }
   }
-  if (jobName) recordProactivePush(jobName, log);
+  // Учитываем только доставленные push'ы: сбой TG не должен раздувать backoff (r3-minor).
+  if (jobName && sentOk) recordProactivePush(jobName, log);
 }
 
 function doUpdate(log = console.log, { inDaemon = false } = {}) {
@@ -1226,7 +1228,7 @@ async function cmdImportHealth(args, flags) {
     return;
   }
   const lib = await import(join(REPO_ROOT, "lib", "dist", "index.js"));
-  if (!lib.detectFormat || !lib.parseAppleHealth) {
+  if (!lib.detectFormat || !lib.parseAppleHealthStats || !lib.parseGoogleFitDaily || !lib.parseGenericCsv) {
     err("Модуль health-import не собран — выполните npm run build");
     process.exitCode = 1;
     return;
@@ -1301,7 +1303,7 @@ async function cmdReset(flags = {}) {
     plan.push("• docker compose down -v — УДАЛИТ данные Postgres/TypeDB/Ollama-модели (тома nabu-*)");
     plan.push("  ⚠ вместе с ними — всю память, заметки в БД, историю чата, vault-записи");
   } else {
-    plan.push(`• режим ${mode}: внешняя БД НЕ трогается (чистится только локальный state)`);
+    plan.push(`• не инициализировано (nabu init) — чистится только локальный state`);
   }
   plan.push(`• удалить локальный state: ${STATE_DIR} (pid, логи, треды чата, telegram-state, расписание-state, job-results)`);
   if (flags.hard) plan.push(`• --hard: удалить ${ENV_PATH} (пароли, NABU_VAULT_KEY — vault в бэкапах станет нерасшифруемым!)`);
@@ -1468,7 +1470,7 @@ if (flags.profile) globalThis.__nabuProfileFlag = String(flags.profile);
 const HELP = `
 ${C.b}nabu${C.x} — zero-config запуск Nabu (ИИ-Совет на Claude Code)
 
-  nabu init [--local] [--no-model]   первичная настройка (docker, схемы, модель, smoke)
+  nabu init [--no-model]             первичная настройка (docker, схемы, модель, smoke)
   nabu start | stop [--infra]        демон: расписание + TTL-purge + веб-чат
   nabu status | logs [--n=100]       состояние / хвост лога демона
   nabu logs --chat | --job <j>       JSONL-лог чата / лог задачи расписания
@@ -1477,6 +1479,7 @@ ${C.b}nabu${C.x} — zero-config запуск Nabu (ИИ-Совет на Claude 
   nabu chat                          открыть веб-чат (http://127.0.0.1:${CHAT_PORT})
   nabu schedule [enable|disable <j>] список/управление agent-задачами
   nabu update                        git pull → build → рестарт демона
+  nabu stop | daemon                 остановить демон · запустить в форграунде
   nabu doctor [--deep]               диагностика (+диск/БД/лог/бэкап/расписание)
   nabu profiles                      список профилей (--profile <имя> у любой команды)
   nabu version                       версия

@@ -1,17 +1,5 @@
 {
   "namespace": "default",
-  "data_sources": [
-    {
-      "type": "folder",
-      "path": "./data",
-      "visibility": "private",
-      "formats": [
-        "md",
-        "txt",
-        "pdf"
-      ]
-    }
-  ],
   "models": {
     "brain": "claude-code",
     "embedding": {

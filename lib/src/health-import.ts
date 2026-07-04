@@ -44,7 +44,9 @@ export function normalizeAppleDate(raw: string): string {
   const m = raw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\s*([+-]\d{2}):?(\d{2}))?/);
   if (!m) return raw;
   const [, date, time, offH, offM] = m;
-  const off = offH ? `${offH}:${offM}` : "Z";
+  // Без офсета — ЛОКАЛЬНОЕ время устройства (не приклеиваем Z: naive «08:00» — это не UTC).
+  // Apple всегда пишет офсет; ветка — для generic-совместимости.
+  const off = offH ? `${offH}:${offM}` : "";
   return `${date}T${time}${off}`;
 }
 
@@ -274,7 +276,7 @@ export class HealthImportRepository {
     const seen = new Set<string>();
     const unique: HealthPoint[] = [];
     for (const p of points) {
-      const key = `${p.metric} ${p.occurredAt} ${p.value}`;
+      const key = `${p.metric}\u0000${p.occurredAt}\u0000${p.value}`;
       if (seen.has(key)) continue;
       seen.add(key);
       unique.push(p);
