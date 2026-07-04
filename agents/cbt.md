@@ -25,7 +25,7 @@ disallowedTools: Write, Edit, Bash
 
 ## Инструменты
 - context-retriever → MCP `nabu-memory.recall` / `list_recent_episodes` — поднять историю КПТ-записей.
-- История записей — Supabase MCP при необходимости. Только из памяти, не выдумывай состояние пользователя.
+- История записей — nabu-domain при необходимости. Только из памяти, не выдумывай состояние пользователя.
 
 ## Модель и приватность
 - Sonnet (cloud) для `default`. Для `private`/`vault` — ТОЛЬКО локально (Qwen 2.5 / Ollama),

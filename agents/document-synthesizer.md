@@ -20,7 +20,7 @@ disallowedTools: Edit, Bash
   `nabu-pipeline.search_knowledge`.
 - Граф (обход связей вокруг subject): `nabu-memory.graph_neighbors` или TypeDB MCP.
 - Шаблоны: `template-loader` — читает файлы `templates/*.md`.
-- Таблицы (goals, quests, metric_* для разделов): Supabase MCP.
+- Таблицы (goals, quests, metric_* для разделов): nabu-domain.
 - Любая тяжёлая статистика — через MCP nabu-analytics (TypeScript), НЕ через Claude; агент только интерпретирует.
 
 ## Модель и приватность

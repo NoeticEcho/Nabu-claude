@@ -18,7 +18,7 @@ disallowedTools: Edit, Bash
 - Выход: `argument_graph` — граф в формате, совместимом с `.graphml` (узлы, рёбра, атрибуты типов).
 
 ## Инструменты (маппинг)
-- Тезисы и связи (источник данных) → Supabase MCP, таблицы `claims`, `claim_relations`.
+- Тезисы и связи: данные бери из контекста/знаний (search_knowledge); узких tools для `claims` пока нет — итог возвращай адъютанту.
 - Построение/чтение графа → `nabu-memory.graph_*` / TypeDB MCP.
 - Связанный контекст → `nabu-pipeline.search_knowledge`.
 - Файл `.graphml` пишешь сам (Write разрешён). Тяжёлую раскладку/расчёты через `Bash` НЕ запускаешь

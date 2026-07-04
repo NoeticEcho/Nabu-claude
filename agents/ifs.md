@@ -24,7 +24,7 @@ Self методом Internal Family Systems. Ты НЕ терапевт и не 
 
 ## Инструменты
 - context-retriever → MCP `nabu-memory.recall` / `list_recent_episodes` — история ранее обозначенных частей.
-- История записей — Supabase MCP при необходимости. Только из памяти, не выдумывай части пользователя.
+- История записей — nabu-domain при необходимости. Только из памяти, не выдумывай части пользователя.
 
 ## Модель и приватность
 - Sonnet (cloud) для `default`. Для `private`/`vault` — ТОЛЬКО локально (Qwen 2.5 / Ollama),

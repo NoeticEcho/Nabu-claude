@@ -15,7 +15,7 @@ disallowedTools: Write, Edit, Bash
 - Выход: `{ status_update?, new_risks?, new_artifacts?, blockers? }` (всё опционально — если сигнала нет, ничего не выдумывать).
 
 ## Инструменты (маппинг на основной Nabu)
-- Проекты и их задачи → Supabase MCP: `projects`, `tasks` (текущий статус, дедлайны, открытые задачи).
+- Проекты и их задачи → nabu-domain: `projects`, `tasks` (текущий статус, дедлайны, открытые задачи).
 - Связанный контекст (прошлые упоминания, решения, люди) → `nabu-memory.recall`.
 - Граф связей проекта (с людьми/целями/заметками) → `nabu-memory.graph_neighbors`; новые связи проект↔сущность — `nabu-memory.graph_relate` (предложение).
 

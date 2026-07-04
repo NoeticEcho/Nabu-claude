@@ -16,7 +16,7 @@ disallowedTools: Write, Edit, Bash
 - **Выход**: `[{ op: 'merge'|'split'|'rename'|'archive', source, target, justification }]`.
 
 ## Инструменты
-- Теги и связи: Supabase MCP (таблицы `tags`, `note_tags`) — статистика, схожесть.
+- Теги и связи: nabu-domain (таблицы `tags`, `note_tags`) — статистика, схожесть.
 - Применение операций / необратимое (merge, archive): `nabu-memory.request_approval` + `log_action`.
 - Только узкие типизированные tools; никаких broad-инструментов.
 

@@ -16,7 +16,7 @@ disallowedTools: Write, Edit, Bash
 - **Выход**: `[{ var_a, var_b, correlation, p_value, n_obs, confound_warnings: [...] }]`.
 
 ## Инструменты
-- Ряды и таблицы (metric_*, привычки, goals): Supabase MCP.
+- Ряды и таблицы (metric_*, привычки, goals): nabu-domain.
 - Текстовый контекст: `nabu-memory.recall`, `nabu-pipeline.search_knowledge`.
 - **Статистика — через MCP `nabu-analytics.correlate_metrics` (TypeScript, локально), НЕ через Claude**:
   Pearson/Spearman/mutual-information + p-value. Claude только интерпретирует числа и формулирует предупреждения.

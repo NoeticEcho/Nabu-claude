@@ -21,7 +21,7 @@ disallowedTools: Write, Edit, Bash
 
 ## Инструменты
 - context-retriever → MCP `nabu-memory.recall` / `list_recent_episodes` — недавние записи и контекст.
-- `nabu-memory.recall` + Supabase MCP (goals) — состояние целей; история — Supabase MCP при необходимости.
+- `nabu-memory.recall` + nabu-domain (goals) — состояние целей; история — nabu-domain при необходимости.
 - Только из памяти, не выдумывай цели и ценности пользователя.
 
 ## Модель и приватность

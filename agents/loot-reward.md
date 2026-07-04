@@ -19,7 +19,7 @@ disallowedTools: Write, Edit, Bash
 - Выход (JSON): `{ tuppi_awarded, new_unlocks_available, narrative }`.
 
 ## Инструменты (маппинг)
-- Баланс Tuppi и разблокировки → Supabase MCP, таблицы `character_sheet`, `xp_ledger` (и связанные
+- Баланс Tuppi и разблокировки → nabu-domain, таблицы `character_sheet`, `xp_ledger` (и связанные
   записи наград).
 - Правила начислений — детерминированный код (без LLM); LLM только для narrative.
 

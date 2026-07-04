@@ -18,7 +18,7 @@ disallowedTools: Write, Edit, Bash
 ## Инструменты
 - Контекст: `nabu-memory.recall`, `nabu-memory.list_recent_episodes`, `nabu-pipeline.search_knowledge`.
 - Граф (связи гипотезы с сущностями): `nabu-memory.graph_neighbors` или TypeDB MCP.
-- Таблицы (goals, quests, metric_* — для success_metric): Supabase MCP.
+- Таблицы (goals, quests, metric_* — для success_metric): nabu-domain.
 - Расчёт базовых линий/эффекта — через MCP nabu-analytics (TypeScript), НЕ через Claude; агент интерпретирует.
 
 ## Модель и приватность

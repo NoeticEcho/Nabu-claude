@@ -114,11 +114,10 @@ financial/destructive) — через `request_approval` + `log_action` (governa
 
 ## Хардненинг и эксплуатация (v0.6.0)
 
-- **Изоляция в общей БД**: `mem_*`/`knowledge`/`deliberation`/governance — по `namespace`
-  (`NABU_NAMESPACE`). Доменные/аналитические таблицы основного Nabu (projects/habits/metric_*/…) —
-  по **`NABU_USER_ID`** (в многопользовательской БД задавать ОБЯЗАТЕЛЬНО; иначе берётся первый
-  пользователь с предупреждением). RLS на `mem_*` не навешан (namespace-модель для персонального
-  режима) — при мультиарендности добавить политики.
+- **Две оси изоляции** (standalone-БД): `mem_*`/`knowledge`/`deliberation`/governance — по
+  `namespace`; доменные/аналитические таблицы (projects/habits/metric_*/…) — по `NABU_USER_ID`.
+  Профили обязаны задавать ОБЕ оси (fail-closed, `nabu profiles add`). RLS не навешан
+  (персональная локальная БД).
 - **TTL памяти**: `nabu-memory.purge_expired_working` чистит истёкшую рабочую память; на чтении
   всё равно фильтруется по `expires_at`. Периодичность — через `/schedule` Claude Code или pg_cron.
 - **Приватность по умолчанию**: episodic/semantic пишутся `private` по умолчанию; чувствительные

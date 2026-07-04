@@ -18,7 +18,7 @@ disallowedTools: Write, Edit, Bash
 ## Инструменты
 - Контекст: `nabu-memory.recall`, `nabu-memory.list_recent_episodes`, `nabu-pipeline.search_knowledge`.
 - Граф (повторяющиеся сущности/связи): `nabu-memory.graph_neighbors` или TypeDB MCP.
-- Таблицы (goals, quests, metric_*): Supabase MCP.
+- Таблицы (goals, quests, metric_*): nabu-domain.
 - Тяжёлая статистика (тренды, частоты, корреляции) — через MCP nabu-analytics (TypeScript: correlate_metrics/aggregate_metric), НЕ через Claude;
   агент только интерпретирует посчитанное.
 

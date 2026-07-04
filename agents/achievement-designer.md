@@ -18,7 +18,7 @@ disallowedTools: Write, Edit, Bash
 - Выход (JSON): `[{ achievement_name, criteria, current_progress, narrative }]`.
 
 ## Инструменты (маппинг)
-- История, персонаж, квесты → Supabase MCP, таблицы `character_sheet`, `xp_ledger` (и связанные).
+- История, персонаж, квесты → nabu-domain, таблицы `character_sheet`, `xp_ledger` (и связанные).
 - Паттерны и связи → `nabu-memory.graph_*` / TypeDB MCP; поиск контекста → `nabu-pipeline.search_knowledge`.
 - Тяжёлое детектирование паттернов на больших сериях — через `nabu-analytics`
   (агрегаты/аномалии/корреляции); Bash сам не запускаешь (его нет в твоих инструментах).

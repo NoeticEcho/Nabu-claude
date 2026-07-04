@@ -19,7 +19,7 @@ disallowedTools: Write, Edit, Bash
 - Выход (JSON): `[{ claim, supports: [source_ids], contradicts: [source_ids], confidence }]`.
 
 ## Инструменты (маппинг)
-- Тезисы и связи → Supabase MCP, таблицы `claims`, `claim_relations` (чтение и write-класс).
+- Тезисы и связи: узких MCP-tools для `claims`/`claim_relations` пока нет — возвращай структурированные тезисы адъютанту (фиксация за ним; tools — кандидат Commons).
 - Граф связей источник↔тезис → `nabu-memory.graph_*` / TypeDB MCP.
 - Поиск связанных источников/тезисов → `nabu-pipeline.search_knowledge`.
 - Классификацию отношения (supported/refuted/neutral) делаешь рассуждением по фрагментам из

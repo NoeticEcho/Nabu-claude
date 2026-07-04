@@ -15,7 +15,7 @@ disallowedTools: Write, Edit, Bash
 - Выход: `[{ item, from, to, justification }]`.
 
 ## Инструменты (маппинг на основной Nabu)
-- Проекты и задачи как источник статусов и активности → Supabase MCP: `projects`, `tasks` (последняя правка, открытые задачи, completed).
+- Проекты и задачи как источник статусов и активности → nabu-domain: `projects`, `tasks` (последняя правка, открытые задачи, completed).
 - Контекст неоднозначных случаев (жив ли проект по факту) → `nabu-memory.recall`.
 - Граф принадлежности элементов к сферам → `nabu-memory.graph_neighbors`.
 

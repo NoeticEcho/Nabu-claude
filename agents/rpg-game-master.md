@@ -19,7 +19,7 @@ disallowedTools: Write, Edit, Bash
 - Выход (JSON): `{ xp_delta_per_attr: {...}, level_up?, new_class?, narrative_message? }`.
 
 ## Инструменты (маппинг)
-- Состояние персонажа и журнал XP → Supabase MCP, таблицы `character_sheet`, `xp_ledger`
+- Состояние персонажа и журнал XP → nabu-domain, таблицы `character_sheet`, `xp_ledger`
   (чтение и запись начислений).
 - Разметка правил XP — детерминированный код (без LLM); LLM только для narrative.
 

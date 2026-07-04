@@ -17,7 +17,7 @@ disallowedTools: Write, Edit, Bash
 
 ## Инструменты
 - Кандидаты по сходству: `nabu-memory.recall` (pgvector, порог ≥0.92) — без LLM.
-- Содержимое заметок: Supabase MCP (таблица `notes`) для content-diff.
+- Содержимое заметок: nabu-domain (таблица `notes`) для content-diff.
 - Точное сравнение: minhash — локально.
 - Склейка / необратимое: `nabu-memory.request_approval` + `log_action`.
 - Только узкие типизированные tools; никаких broad-инструментов.

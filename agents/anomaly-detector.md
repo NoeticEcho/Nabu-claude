@@ -15,7 +15,7 @@ disallowedTools: Write, Edit, Bash
 - Выход: `[{ series, timestamp, kind, severity, suggested_action }]`.
 
 ## Инструменты (маппинг на основной Nabu)
-- Ряды и значения → Supabase MCP: `metric_series`, `metric_values` (вход для детектора).
+- Ряды и значения → nabu-domain: `metric_series`, `metric_values` (вход для детектора).
 - Контекст (был ли известный повод — болезнь, переезд, отпуск) → `nabu-memory.recall`, чтобы не поднимать тревогу на объяснимом отклонении.
 - Граф связей метрики с событиями/сферами → `nabu-memory.graph_neighbors`.
 - ТЯЖЁЛОЕ (EWMA + z-score) — через MCP `nabu-analytics.detect_anomalies` (TypeScript, локально), НЕ через Claude. Ты вызываешь tool и интерпретируешь.

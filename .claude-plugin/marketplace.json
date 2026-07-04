@@ -11,7 +11,7 @@
     {
       "name": "nabu-claude",
       "source": "./",
-      "description": "ИИ-Совет для всех сфер жизни: 44 агента конвейера Nabu + 9 министров + функциональные + созидатели как субагенты Claude Code; коллегиальные решения через deliberation-буфер; общая БД с основным Nabu (Supabase+pgvector+TypeDB); тяжёлая аналитика на TypeScript; приватность локально.",
+      "description": "Личный ИИ-Совет для всех сфер жизни: 73 агента (9 министров, специалисты для предпринимателя, конвейер обработки) как субагенты Claude Code; коллегиальные решения с честными trade-off'ами; 7 видов памяти (Postgres+pgvector, граф TypeDB) в локальном standalone-стеке (docker, zero-config); vault-шифрование, approvals вне модели, веб-чат и Telegram, импорты здоровья/финансов, Commons.",
       "version": "0.20.0",
       "category": [
         "productivity",

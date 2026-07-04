@@ -18,7 +18,7 @@ disallowedTools: Write, Edit, Bash
 ## Инструменты
 - Семантика: `nabu-memory.recall` / `nabu-pipeline.search_knowledge` (pgvector, без LLM).
 - Граф: `nabu-memory.graph_neighbors` или TypeDB MCP (пути между сущностями).
-- Метаданные заметок: Supabase MCP (таблица `notes` — заголовки, статусы).
+- Метаданные заметок: nabu-domain (таблица `notes` — заголовки, статусы).
 - Только узкие типизированные tools; никаких broad-инструментов.
 
 ## Модель и приватность

@@ -17,7 +17,7 @@ disallowedTools: Write, Edit, Bash
 
 ## Инструменты
 - Граф: `nabu-memory.graph_upsert_concept` (идемпотентная вставка/дедуп) или TypeDB MCP (schema-introspect / insert).
-- Staging: Supabase MCP (чтение `entities_pending`).
+- Staging: nabu-domain (чтение `entities_pending`).
 - Изменение схемы / необратимое: `nabu-memory.request_approval` + `log_action`.
 - Только узкие типизированные tools; никаких broad-инструментов.
 

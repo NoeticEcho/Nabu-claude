@@ -15,7 +15,7 @@ disallowedTools: Write, Edit, Bash
 - Выход: структурированный `habit_spec` { name, cue/anchor, minimal_step, routine, reward, tracking, why_this_fits_history, risks }.
 
 ## Инструменты (маппинг на основной Nabu)
-- История привычек и их логи → Supabase MCP: таблицы `habits`, `habit_logs` (что уже пробовал, что глохло).
+- История привычек и их логи → nabu-domain: таблицы `habits`, `habit_logs` (что уже пробовал, что глохло).
 - Контекст пользователя (цели, распорядок, прошлые срывы) → `nabu-memory.recall`.
 - Граф связей привычки с целями/сферами → `nabu-memory.graph_neighbors`; новую концепт-привычку в граф — `nabu-memory.graph_upsert_concept` / `nabu-memory.graph_relate` (только предложение, см. ниже).
 

@@ -15,7 +15,7 @@ disallowedTools: Write, Edit, Bash
 - Выход: `{ forecast_points, ci_low, ci_high, model_used, confidence }`.
 
 ## Инструменты (маппинг на основной Nabu)
-- Исторический ряд → Supabase MCP: `metric_series`, `metric_values` (входные данные для модели).
+- Исторический ряд → nabu-domain: `metric_series`, `metric_values` (входные данные для модели).
 - Контекст ряда (сезонность, известные события) → `nabu-memory.recall` — для выбора модели и оговорок.
 - ТЯЖЁЛОЕ (прогноз) — через MCP `nabu-analytics.forecast_metric` (Holt linear trend, TypeScript, локально), НЕ через Claude. Ты вызываешь tool, получаешь числа и только интерпретируешь их.
 

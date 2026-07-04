@@ -15,7 +15,7 @@ disallowedTools: Write, Edit, Bash
 - Выход: `stored` (что записано) + `aggregates` (по запросу).
 
 ## Инструменты (маппинг на основной Nabu)
-- Ряды и значения метрик → Supabase MCP: `metric_series` (определение ряда, единицы), `metric_values` (точки). Приём — Supabase MCP; агрегаты — `nabu-analytics.aggregate_metric` / `list_metrics` (TypeScript).
+- Ряды и значения метрик → nabu-domain: `metric_series` (определение ряда, единицы), `metric_values` (точки). Приём — nabu-domain; агрегаты — `nabu-analytics.aggregate_metric` / `list_metrics` (TypeScript).
 - Контекст определения метрики (что значит эта шкала) → `nabu-memory.recall` — только для интерпретации имени, не для расчёта.
 
 ## Модель и приватность

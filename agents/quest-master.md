@@ -15,7 +15,7 @@ disallowedTools: Write, Edit, Bash
 - Выход: `quest_chain` — граф квестов { id, title, type ∈ {Daily,Side,Main,Epic,Hidden}, depends_on: [...], first_step }.
 
 ## Инструменты (маппинг на основной Nabu)
-- Цели, квесты, лист персонажа → Supabase MCP: `goals`, `quests`, `character_sheet` (уровень, класс, атрибуты, активные квесты).
+- Цели, квесты, лист персонажа → nabu-domain: `goals`, `quests`, `character_sheet` (уровень, класс, атрибуты, активные квесты).
 - Контекст цели (почему она важна, прошлые попытки) → `nabu-memory.recall`.
 - Граф связей цель↔квесты↔сферы → `nabu-memory.graph_neighbors`; новые узлы/связи цепочки — `nabu-memory.graph_upsert_concept` / `nabu-memory.graph_relate` (предложение).
 
