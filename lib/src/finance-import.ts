@@ -159,7 +159,7 @@ export function parseBankCsv(csv: string): { txs: FinanceTx[]; warnings: string[
     const bankCat = idxCategory >= 0 && idxCategory !== idxDesc ? cells[idxCategory]?.trim() || undefined : undefined;
     txs.push({ occurredOn, amount, currency, description, category: bankCat });
   }
-  if (bad > 0) warnings.push(`Пропущено строк (не удалось разобрать дату/сумму): ${bad}`);
+  if (bad > 0) warnings.push(`Пропущено строк (не удалось разобрать дату/сумму): ${bad}. Поддерживаемые даты: DD.MM.YYYY и YYYY-MM-DD; суммы: 1 234,56 / 1,234.56 (скобки и хвостовой минус не поддержаны)`);
   return { txs, warnings };
 }
 
@@ -213,9 +213,15 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-/** Хэш строки выписки для дедупа: sha256(occurredOn|amount|description) hex. */
-function txHash(tx: FinanceTx): string {
-  return createHash("sha256").update(`${tx.occurredOn}|${tx.amount}|${tx.description}`).digest("hex");
+/**
+ * Хэш строки для дедупа: sha256(occurredOn|amount|description|ordinal).
+ * ordinal — порядковый номер строки СРЕДИ ИДЕНТИЧНЫХ в файле (r3-M4): два легитимно одинаковых
+ * платежа («два кофе») получают 0 и 1 и живут оба; реимпорт того же файла воспроизводит те же
+ * ordinal'ы → идемпотентность. Честное ограничение: пересекающиеся выписки с разным составом
+ * идентичных строк могут разойтись именно на них; банковский tx-id (если есть) — надёжнее.
+ */
+function txHash(tx: FinanceTx, ordinal: number): string {
+  return createHash("sha256").update(`${tx.occurredOn}|${tx.amount}|${tx.description}|${ordinal}`).digest("hex");
 }
 
 /** Итог импорта: сколько вставлено, сколько отсеяно дедупом, суммы (abs) по категориям для вставленных. */
@@ -233,6 +239,7 @@ export interface FinanceSummary {
   topCategories: Array<{ category: string; spent: number }>;
   txCount: number;
   currency: string;
+  otherCurrencies: string[]; // валюты вне основной — суммы по ним не смешиваются
 }
 
 /**
@@ -271,9 +278,13 @@ export class FinanceImportRepository {
     // Схлопнуть точные дубликаты внутри самого файла (по хэшу) — часть идемпотентности.
     const seen = new Set<string>();
     const rows: Array<{ tx: FinanceTx; hash: string; category: string }> = [];
+    const ordinals = new Map<string, number>(); // ключ идентичности → следующий порядковый номер
     for (const tx of txs) {
-      const hash = txHash(tx);
-      if (seen.has(hash)) continue;
+      const key = `${tx.occurredOn}|${tx.amount}|${tx.description}`;
+      const ordinal = ordinals.get(key) ?? 0;
+      ordinals.set(key, ordinal + 1);
+      const hash = txHash(tx, ordinal);
+      if (seen.has(hash)) continue; // теперь ловит только реальные дубли (тройная защита не нужна, но дёшево)
       seen.add(hash);
       const category = tx.category?.trim() || categorize(tx.description);
       rows.push({ tx, hash, category });
@@ -314,11 +325,20 @@ export class FinanceImportRepository {
   /** Сводка за последние `days` дней: для CLI-вывода и будущего министра finance. */
   async summary(days = 30): Promise<FinanceSummary> {
     const u = await this.user();
+    // r3-M7: суммы считаются ТОЛЬКО в основной валюте (по числу транзакций);
+    // остальные валюты перечисляются отдельно — конвертацию не выдумываем.
+    const curs = await this.pg.query<{ currency: string; cnt: string }>(
+      `select currency, count(*) as cnt from finance_transaction where user_id = $1
+       group by currency order by cnt desc`,
+      [u],
+    );
+    const currency = curs[0]?.currency ?? "RUB";
+    const otherCurrencies = curs.slice(1).map((c) => c.currency);
     const spentRows = await this.pg.query<{ category: string; spent: string }>(
       `select category, sum(abs(amount)) as spent from finance_transaction
-       where user_id = $1 and amount < 0 and occurred_on >= (current_date - $2::int)
+       where user_id = $1 and amount < 0 and occurred_on >= (current_date - $2::int) and currency = $3
        group by category order by spent desc`,
-      [u, days],
+      [u, days, currency],
     );
     const totals = await this.pg.queryOne<{ spent: string | null; income: string | null; cnt: string }>(
       `select
@@ -326,13 +346,8 @@ export class FinanceImportRepository {
          coalesce(sum(case when amount > 0 then amount else 0 end),0) as income,
          count(*) as cnt
        from finance_transaction
-       where user_id = $1 and occurred_on >= (current_date - $2::int)`,
-      [u, days],
-    );
-    const cur = await this.pg.queryOne<{ currency: string }>(
-      `select currency from finance_transaction where user_id = $1
-       group by currency order by count(*) desc limit 1`,
-      [u],
+       where user_id = $1 and occurred_on >= (current_date - $2::int) and currency = $3`,
+      [u, days, currency],
     );
     return {
       days,
@@ -340,7 +355,8 @@ export class FinanceImportRepository {
       income: round2(Number(totals?.income ?? 0)),
       topCategories: spentRows.slice(0, 5).map((r) => ({ category: r.category, spent: round2(Number(r.spent)) })),
       txCount: Number(totals?.cnt ?? 0),
-      currency: cur?.currency ?? "RUB",
+      currency,
+      otherCurrencies,
     };
   }
 }
