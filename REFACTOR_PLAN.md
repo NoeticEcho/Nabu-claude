@@ -1,111 +1,102 @@
-# REFACTOR_PLAN.md — раунд 2 (по AUDIT.md v0.13.0)
+# REFACTOR_PLAN.md — раунд 3 (по AUDIT.md v1.0.0)
 
-Порядок: **critical → major → minor**. Каждый шаг атомарен (typecheck + 34 unit + 47 guard
-зелёные после каждого), коммитится отдельно. Контракты (`@nabu/lib` exports, имена MCP-tools,
-форма `structuredContent`, существующие DDL-колонки, HTTP-роуты) не меняются.
+Порядок: critical → major → minor. Каждый шаг атомарен (typecheck + 70 unit + 47 guard зелёные),
+отдельный коммит. Контракты (имена MCP-tools, HTTP-роуты, форматы файлов .enc/NBK1, схемы —
+только аддитивно) не меняются, кроме явно указанного в шагах. Итог — **v1.0.1** (bugfix-релиз,
+push в опубликованный репозиторий).
 
-**Проверка:** `npm run typecheck` · `npm test` · `npm run test:hooks` · `node --check cli/*` ·
-таргет-тесты по шагам (эмпирика на живом/мёртвом стеке, стабы TG).
+**Проверка на каждом шаге:** `npm run typecheck` · `npm test` · `npm run test:hooks` ·
+`node --check cli/*` + таргет-эмпирика шага. Финал — полный E2E: **свежая установка с нуля**
+(без .env!) → chat-обмен → профильный цикл → backup --encrypt.
 
 ---
 
-## Фаза 1 — CRITICAL
+## Фаза 1 — CRITICAL (продукт сломан)
 
-**Шаг 1 (2.3 + 2.7 + 2.8 + часть 1.3). Целостность backup.**
-- pg: резолв на `child.on('close')` **и** flush потока; успех строго `code===0`; при провале —
-  `unlinkSync(dst)`; sanity: размер > 200 байт.
-- typedb: preflight `docker inspect nabu-typedb` (нет контейнера → skip с warn, том не создаём);
-  alpine-run с `--user uid:gid` (чинит root-owned ретенцию 2.8).
-- tar-excludes без `./`-якоря (`--exclude=.backups --exclude=.nabu/tmp`) — bsdtar-совместимо (2.7).
-- Итог честный: `made`-компоненты + `failed`-компоненты; exit 1, если хоть один компонент провалился;
-  сообщение «частично» вместо «готов».
-- Файлы: `cli/nabu.mjs`. Проверка: **эмпирика** — мёртвый стек ⇒ exit≠0, артефактов не остаётся,
-  stray-том не создаётся; живой стек ⇒ 3 валидных архива (pg >1КБ, typedb >10КБ), ретенция удаляет старые.
+**Ш1 (C2). Веб-чат: TDZ.** Перенести блок `threadProfile/profEnv` выше первого использования.
+Файл: chat-server.mjs. Проверка: live-обмен `/api/chat` (стаб claude) → text/done приходят;
+затем реальный обмен.
 
-**Шаг 2 (2.1 + 2.2 + 2.4). Живучесть демона.**
-- `runClaudeJob`: `child.on('error', …)` → лог + job-results с ошибкой (краш демона исключён).
-- `doUpdate` CLI-путь: после `cmdStop()` — poll `pidAlive` до смерти (таймаут 10с, потом SIGKILL+warn),
-  затем `cmdStart()`.
-- Демон: `startChatServer` в retry-петле (5 попыток × 1с на EADDRINUSE) — auto-update больше не
-  оставляет чат мёртвым.
-- Файлы: `cli/nabu.mjs`. Проверка: unit-подобный стаб spawn-error; **живой цикл** `start → update
-  (без изменений=noop) → стоп/старт-цикл вручную: демон жив, чат отвечает`.
+**Ш2 (C1). Свежая установка.** `cmdInit`: отсутствие `.env`/DATABASE_URL = **standalone по
+определению** (mode="none" остаётся только для reset/status-семантики «не инициализировано»);
+bootstrap выполняется всегда при init. Файл: nabu.mjs. Проверка: **E2E с нуля** — пустой env-путь
+→ init → DATABASE_URL сгенерирован, стек поднят, 13 схем, smoke зелёный.
 
-**Шаг 3 (1.2 + 3.7). Vault-утечка actors/context/source.**
-- `rememberEpisode` при vault: шифровать каждый элемент `actors[]`, `context` → `{"$vault": enc}`;
-  `addFact` при vault: шифровать `source` (если задан). `listVaultRecent` — без изменений (читает event).
-- Тесты: malformed-ciphertext (сегменты/пустой IV/порча tag → `tryDecrypt` не бросает,
-  `decryptVault` бросает) + юнит на форму зашифрованных actors/context (без БД — через мок pg? нет:
-  проверка литералов параметров через мок Postgres как в postgres.test.ts).
-- Существующие vault-строки (только тестовые) не мигрируем — задокументировать в комменте.
-- Файлы: `lib/src/repositories/memory.ts`, `lib/test/vault.test.ts`. Проверка: тесты + **живая
-  эмпирика**: vault-эпизод ⇒ в БД actors/context нечитаемы.
+**Ш3 (C3). Профили fail-closed.** Валидация во всех трёх точках загрузки (applyProfile,
+chat profilesConfig-использования, buildDeps): профиль обязан задавать **и namespace, и user_id**
+— иначе отказ с понятной ошибкой (не тихий fallback). + `nabu profiles add <имя>` — создаёт
+строку users в БД и дописывает валидный профиль в конфиг (устраняет ручную UUID-магию).
+Обновить _readme и docs. Файлы: nabu.mjs, chat-server.mjs, lib/index.ts, docs. Проверка:
+живьём — неполный профиль отклонён везде; `profiles add anna` → изоляция задач/заметок
+подтверждена в ОБЕ стороны.
 
-**Шаг 4 (1.1 + 2.5 + 2.6 + 2.12). TG: конкурентность и жизненный цикл.**
-- Per-topic очереди: `chains = Map<threadKey, Promise>`; `handleUpdate` диспатчит в цепочку топика
-  (внутри топика — последовательно, между топиками — параллельно); poll-цикл не ждёт обработку
-  (только команды-мутации state — быстрые, можно в общей цепочке "ctl").
-- Трек живых детей (`Set`); `stop()`: abort + SIGKILL детей; **nabu.mjs сохраняет handle и зовёт
-  `stop()` в `bye()`**.
-- `sleep()`: снимать abort-listener при нормальном резолве.
-- `editSeg`: любой провал edit (кроме "not modified") ⇒ `curMsgId=null` (следующий render перепошлёт).
-- Файлы: `cli/telegram-bot.mjs`, `cli/nabu.mjs`. Проверка: стаб-смоук (существующий подход):
-  два параллельных топика — оба отвечают interleaved; stop() убивает ребёнка; edit-fail ⇒ resend.
-- Риск: самый инвазивный шаг. При >3 неудачных попытках — откат, blocked, остальное не зависит.
+**Ш4 (C4+M9). Standalone-миграция контента.** Скриптовая правка 28 agents/*.md: «Supabase MCP
+(таблицы …)» → «nabu-domain (list_/add_/log_-tools)» единой формулировкой; AGENT_INTEGRATION:117
+дочистить; marketplace.json — новая карточка (standalone, 73 агента, актуальное описание).
+Проверка: grep-чистота (0 живых Supabase-инструкций вне исторических/спек-доков), все упомянутые
+tools существуют (переиспользовать проверку a3-product).
 
 ## Фаза 2 — MAJOR
 
-**Шаг 5 (2.10 + 2.11 + 3.1 + 3.2 + 3.3 + 3.4 + 6.4). Веб-слой.**
-- UI: при `state.streaming` клики по тредам/новый тред — заблокированы (dim + tooltip «дождитесь ответа»).
-- `fullText`: если пришёл хоть один delta — игнорировать полные assistant-тексты (взаимоисключение).
-- Host: пустой заголовок ⇒ 403 (default-deny).
-- `/api/approvals/:id`: UUID-regex ⇒ иначе 404.
-- `deleteThread` route: `await deleteMessages`.
-- statsCache: negative-cache 5с при ошибке.
-- Кнопка ⟳ шлёт `?fresh`.
-- Файлы: `cli/chat-server.mjs`, `cli/ui/chat.html`. Проверка: chat-smoke (стаб /bin/false) +
-  живой E2E один обмен + curl-матрица (Host пустой ⇒ 403; bad-uuid ⇒ 404).
+**Ш5 (M1). Пользовательский стейт — из git.** Живые конфиги переезжают в `NABU_HOME/.nabu/config/`:
+`schedule.json`, `profiles.json`, `integrations.json`, `nabu.config.json` читаются оттуда;
+в репо остаются **шаблоны** (первый запуск сеет копию; существующие правки мигрируются init'ом).
+Все readers (nabu.mjs, chat-server, connect-server, domain-server list_calendar, доки)
+→ единый resolver (env NABU_CONFIG_DIR переопределяет; lib loadConfig — та же логика). Проверка:
+`schedule enable` → `git status` чист; `nabu update` (noop-pull) проходит; все tools читают правки.
 
-**Шаг 6 (2.9 + 4.1). Инсталлеры.**
-- `install.ps1`: `$LASTEXITCODE`-проверки после npm install/build (+ node cli init).
-- Убрать `--yes` из обоих инсталлеров.
-- Файлы: `scripts/install.ps1`, `scripts/install.sh`. Проверка: `bash -n`; PowerShell — ревью
-  (pwsh недоступен локально — пометить как проверено-на-чтение).
+**Ш6 (M2). Демон не фризится.** cmdBackup: typedb/workspace-шаги и deepChecks-docker-вызовы →
+async (`spawn`+await), event-loop свободен. Проверка: latency-проба чата во время `nabu backup`
+на живом стеке (<1с ответ /api/threads).
 
-**Шаг 7 (1.3 + 3.10 + 4.2). Честная документация семантик.**
-- ZERO_CONFIG/комменты: джобы — at-most-once при рестарте демона (offset/stamp-before — намеренно),
-  потолок результата 2МБ, судьба детей при stop.
-- Файлы: docs + комменты в `cli/nabu.mjs`, `cli/telegram-bot.mjs`. Проверка: н/д (docs).
+**Ш7 (M3+minors бэкапа). Шифрование честное.** catch encryptFileGcm → unlink плейнтекста + failed;
+ts бэкапа + `-<pid>`. Проверка: инъекция сбоя (битый ключ) → плейнтекста нет, exit 1.
+
+**Ш8 (M4+M7+фин-minors). Финансы.** tx_hash += порядковый номер среди идентичных строк файла
+(реимпорт того же файла — идемпотентен, «два кофе» — оба живут); `summary()` группирует по
+валютам (основная + список остальных); warning парсера перечисляет поддержанные форматы дат.
+Старые строки БД остаются валидными (соль меняет только новые хэши — аддитивно). Проверка:
+фикстура два-кофе → 2 insert; реимпорт → 0; мультивалютная фикстура → раздельные суммы.
+
+**Ш9 (M5+M6). Connect-защита.** trigger_webhook: атомарное потребление approval
+(`update … set used_at=now() where id=… and status='approved' and used_at is null and
+(expires_at is null or expires_at>now()) returning`; схема 013: `used_at` аддитивно) — one-use +
+expiry; `redirect:"manual"` в call_connector и trigger_webhook (3xx → честный degraded).
+Проверка: живой цикл — второй вызов с тем же approval отклонён; redirect-стенд → degraded.
+
+**Ш10 (M10–M13+клиент-minors). Клиенты.** deleteMessages(profile треда); stats: профильный путь
+не пишет shared negative-cache; hook: идемпотентность фиксируется после успешной записи;
+proactivity: uniq tmp (pid+uuid) у обоих писателей (lost-update принимаем, задокументировать);
+quickAddTask — локальная дата (не UTC); offline: подавить предшествующий error-event при
+активном фолбэке. Проверка: curl-матрица + стаб-смоуки бота.
+
+**Ш11 (M8). ICS EXDATE.** Нормализация сравнения: если любая сторона date-форма — сравнивать
+по календарному дню; TZID-EXDATE — как локаль (симметрично DTSTART). +2 юнит-теста. Проверка:
+tests (воспроизведённый кейс — зелёный).
 
 ## Фаза 3 — MINOR (батчи)
 
-**Шаг 8. TG-полировка:** transcript cap 30к символов (с честным «обрезано»); pip-хинт только для
-transcribe-фазы; `pythonBin` ре-детект при провале (null не кэшировать навсегда); `loggedIgnored`
-cap 100; `saveNote` → `deps.notes.add` (убрать raw-SQL дубль; title-слайс сохранить).
-Файлы: `cli/telegram-bot.mjs`. Проверка: стаб-смоук.
-
-**Шаг 9. Схемы 010 + lib-мелочи:** `010_hardening.sql`: CHECK на `claim_relations.relation`;
-индекс `ix_notes_status(user_id, status)`; ретенция chat_message — метод
-`purgeChatHistory(days=180)` в lib + недельный internal-джоб `chat-retention` (disabled по умолчанию);
-`dashboard.user()` кэш; `update_note` description + предупреждение про title; not-found семантика
-`update_note` → `degraded` (align c memory-server).
-Файлы: `schema/postgres/010_hardening.sql`, `lib/src/repositories/{dashboard,memory или lib}`,
-`mcp/pipeline-server`, `cli/nabu.mjs` (DEFAULT_JOBS). Проверка: применение 010 на живом стеке,
-typecheck/тесты.
-
-**Шаг 10. HELP/косметика:** `version` в HELP; (5.2 — оставить как note).
+**Ш12. cli-полировка:** guard import-health на реально используемые экспорты; recordProactivePush
+только при успешной отправке; сообщения «none»-режима → «не инициализировано (nabu init)»;
+удалить `--local` из HELP/доков; HELP дополнить stop/daemon/backup-decrypt; release-prep —
+исключить сам себя из замены; предупреждение при `--profile` с общим STATE_DIR.
+**Ш13. lib-полировка:** комментарий Apple-парсера честный (+заметка про лимит строки V8);
+naive-datetime → локаль; health-CSV — та же ordinal-соль, что Ш8.
+**Ш14. Продукт-полировка:** README 34→70 unit; выровнять счётчики агентов (70+/73);
+удалить мёртвый `data_sources`; пометка в docs/26 «(историческая спека — в v1.0 Supabase нет)»;
+UI: подпись у селектора профиля «для новых разговоров и статистики».
 
 ---
 
-## Порядок и бюджет
+## Порядок, риски, бюджет
 
-| Фаза | Шаги | Оценка риска |
+| Фаза | Шаги | Риск |
 |---|---|---|
-| 1 | 1–4 | Шаг 4 — инвазивный (правило 2–3 попыток → blocked) |
-| 2 | 5–7 | низкий |
-| 3 | 8–10 | низкий |
+| 1 | 1–4 | Ш2 меняет семантику detectMode — прогнать fresh-E2E и existing-E2E |
+| 2 | 5–11 | Ш5 самый инвазивный (пути конфигов) — миграция обязана быть идемпотентной; blocked-правило 2–3 попыток |
+| 3 | 12–14 | низкий |
 
-Каждый шаг = отдельный коммит. Версия по завершении: **0.13.1** (fix-only, без новых фич).
+Версия: **v1.0.1**, push + GitHub Release (bugfix). Этап 5 — обновление AUDIT.md итогами.
 
 ---
 
