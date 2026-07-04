@@ -13,7 +13,7 @@ import { homedir } from "node:os";
 import { buildDepsOrExit, installGracefulShutdown, ok, degraded, fail, wrap, type McpToolResult } from "@nabu/lib";
 
 const deps = buildDepsOrExit("nabu-pipeline");
-const server = new McpServer({ name: "nabu-pipeline", version: "0.20.0" });
+const server = new McpServer({ name: "nabu-pipeline", version: "1.0.1" });
 
 const visibility = z.enum(["default", "private", "vault"]);
 const TEXT_EXT = new Set([".md", ".markdown", ".txt", ".text"]);

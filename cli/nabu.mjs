@@ -433,6 +433,7 @@ async function cmdDaemon() {
   loadEnvIntoProcess();
   const log = (m) => appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${m}\n`);
   log(`daemon start pid=${process.pid}`);
+  try { ensureScheduleFile(); } catch (e) { log(`schedule migrate: ${e.message}`); } // новые DEFAULT_JOBS доезжают после update без re-init
   let tgStop = null; // handle остановки TG-бота — используется в bye()
 
   // Встроенный веб-чат. Retry на EADDRINUSE: при self-restart (auto-update) старый демон

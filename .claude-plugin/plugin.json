@@ -1,6 +1,6 @@
 {
   "name": "nabu-claude",
-  "version": "0.20.0",
+  "version": "1.0.1",
   "description": "Nabu-claude — ИИ-Совет для всех сфер жизни внутри Claude Code. Полный каталог docs/09 (44 агента) + 9 министров + функциональные + созидатели — субагенты Claude Code; адъютант-оркестратор — skill. Рабочий workspace ~/nabu (горнило→md-выход, git), hooks, проактивные задачи по расписанию, само-улучшение. Общая БД с основным Nabu.",
   "skills": [
     "skills/nabu-orchestrator"

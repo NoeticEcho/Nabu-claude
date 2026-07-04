@@ -9,7 +9,7 @@ import { z } from "zod";
 import { buildDepsOrExit, installGracefulShutdown, ok, fail } from "@nabu/lib";
 
 const deps = buildDepsOrExit("nabu-analytics");
-const server = new McpServer({ name: "nabu-analytics", version: "0.20.0" });
+const server = new McpServer({ name: "nabu-analytics", version: "1.0.1" });
 
 // Единый контракт результата — из @nabu/lib (mcp-result), а не локальная копия.
 const result = ok;

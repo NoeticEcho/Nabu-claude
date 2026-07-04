@@ -1,6 +1,6 @@
 {
   "name": "@nabu/improve-server",
-  "version": "0.20.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
