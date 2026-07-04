@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+*.log
+data/
+scratch/
+# Секреты — никогда не коммитить (см. .env.example)
+.env
+.env.local
+*.pem
+*.key
+.claude/
+__pycache__/

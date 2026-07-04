@@ -1,0 +1,70 @@
+# schema/typedb/memory.tql
+# Онтология семантической и ассоциативной памяти Nabu (TypeDB 3.x).
+# Граф сущностей пользователя + связи. Дополняет Postgres-память (факты с
+# эмбеддингами — там; богатый граф связей — здесь).
+#
+# АДДИТИВНО поверх базовой схемы nabu_dev (note-entity, person, concept, place,
+# relation mentions). НЕ переопределяем @key существующих типов: concept сохраняет
+# concept-name @key, мы лишь ДОБАВЛЯЕМ ему owns/plays. external-id — обычный owns
+# (не @key), т.к. concept уже имеет свой ключ. memory-unit/event — новые, для них
+# external-id можно ключевать при желании (здесь оставлен обычным для единообразия).
+#
+# ВНИМАНИЕ: синтаксис TypeQL версионно-зависим (TypeDB 3.x). Сверять через context7.
+
+define
+
+# ── Атрибуты (новые, не конфликтуют с базовыми note-id/title/person-name/…) ──
+attribute name value string;
+attribute canonical-name value string;
+attribute entity-type value string;      # person | project | concept | place | topic | org
+attribute description value string;
+attribute occurred-at value datetime;
+attribute confidence value double;
+attribute source value string;
+attribute visibility value string;        # default | private | vault
+attribute weight value double;
+attribute relation-kind value string;     # тип ассоциации между концептами
+attribute external-id value string;       # ссылка на запись в Postgres (episodic/semantic id)
+
+# ── Сущности ──
+# Расширяем существующий concept аддитивно (concept-name @key остаётся из базовой схемы).
+entity concept,
+  owns canonical-name,
+  owns entity-type,
+  owns description,
+  owns visibility,
+  owns external-id,
+  plays association:source-concept,
+  plays association:target-concept,
+  plays mention:mentioned,
+  plays participation:participant;
+
+entity event,
+  owns name,
+  owns occurred-at,
+  owns visibility,
+  owns external-id,
+  plays participation:event,
+  plays mention:mentioned;
+
+entity memory-unit,                       # ссылка на единицу памяти (эпизод/факт)
+  owns external-id,
+  owns visibility,
+  plays mention:mentioning;
+
+# ── Связи ──
+relation association,                      # концепт ↔ концепт (ассоциативная память)
+  relates source-concept,
+  relates target-concept,
+  owns relation-kind,
+  owns weight,
+  owns confidence;
+
+relation participation,                    # кто участвовал в событии
+  relates event,
+  relates participant;
+
+relation mention,                          # единица памяти упоминает сущность/событие
+  relates mentioning,
+  relates mentioned,
+  owns confidence;

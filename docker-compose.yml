@@ -1,0 +1,67 @@
+# Nabu zero-config инфраструктура (standalone-режим).
+# Поднимается через `nabu init` / `nabu start` — не напрямую (CLI генерирует .env с паролями).
+# Всё слушает ТОЛЬКО 127.0.0.1 (никакого внешнего доступа). Данные — в named volumes.
+#
+# Профиль "ollama": включается CLI автоматически, если локального бинарника ollama нет
+# (docker compose --profile ollama up). С локальным ollama профиль не активируется.
+name: nabu
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: nabu-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nabu
+      POSTGRES_PASSWORD: ${NABU_PG_PASSWORD:?задайте NABU_PG_PASSWORD (генерирует nabu init)}
+      POSTGRES_DB: nabu
+    # 5433 снаружи — чтобы не конфликтовать с возможным локальным postgres на 5432.
+    # Все внешние порты переопределяемы (nabu init сам выберет свободные при конфликте).
+    ports:
+      - "127.0.0.1:${NABU_PG_PORT:-5433}:5432"
+    volumes:
+      - nabu-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # -h 127.0.0.1 (TCP) принципиален: временный сервер фазы initdb слушает ТОЛЬКО unix-сокет,
+      # и socket-проверка проходила до его shutdown → гонка «healthy, но БД ещё пересоздаётся».
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U nabu -d nabu"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  typedb:
+    # TypeDB 3.x: gRPC :1729, HTTP API :8000 (используется GraphClient плагина).
+    # При обновлении тега сверить, что HTTP API (/v1/signin) доступен.
+    image: typedb/typedb:3.4.4
+    container_name: nabu-typedb
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${NABU_TYPEDB_GRPC_PORT:-1729}:1729"
+      - "127.0.0.1:${NABU_TYPEDB_HTTP_PORT:-8000}:8000"
+    volumes:
+      # ВАЖНО: реальный путь данных в образе 3.4.x — /opt/typedb-server-linux-x86_64/server/data
+      # (проверено docker inspect; /opt/typedb/server/data — ПУСТОЙ симлинк-каталог, данные
+      # уходили в анонимный том и терялись при down -v). Не менять без проверки в образе.
+      - nabu-typedb:/opt/typedb-server-linux-x86_64/server/data
+    healthcheck:
+      # В образе typedb нет wget/curl — проверяем TCP-доступность HTTP-порта через bash /dev/tcp.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8000' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 36
+
+  ollama:
+    # Только если нет локального ollama (профиль включает CLI).
+    profiles: ["ollama"]
+    image: ollama/ollama:latest
+    container_name: nabu-ollama
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${NABU_OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - nabu-ollama:/root/.ollama
+
+volumes:
+  nabu-pgdata:
+  nabu-typedb:
+  nabu-ollama:

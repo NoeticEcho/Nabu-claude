@@ -1,0 +1,12 @@
+# schema/typedb/000_standalone_base.tql
+# ТОЛЬКО standalone-режим (свежий локальный TypeDB без базовой онтологии основного Nabu).
+# Минимальная база, которую memory.tql считает существующей: concept с ключом concept-name.
+# В shared-режиме НЕ применяется — там базовая схема принадлежит основному приложению.
+# define в TypeDB 3.x аддитивен: memory.tql затем ДОБАВИТ concept'у owns/plays.
+
+define
+
+attribute concept-name value string;
+
+entity concept,
+  owns concept-name @key;

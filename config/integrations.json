@@ -1,0 +1,63 @@
+{
+  "_readme": "Интеграции Nabu (nabu-connect). Секреты — ТОЛЬКО в .env (здесь — имена переменных). connectors: внешние API, GET-only, путь обязан попадать в allow (fail-closed). webhooks.out: исходящие автоматизации (n8n/Activepieces/Zapier) — POST c обязательным approval. webhooks.in: входящие хуки демона POST /api/hooks/<name> (?token= из env; опц. secret_env → HMAC-подпись X-Nabu-Signature по `${ts}.${body}` + replay-окно 5мин + X-Nabu-Idempotency-Key) → заметка/намерение. Каталог рекомендованных API — docs/INTEGRATIONS.md.",
+  "connectors": {
+    "weather": {
+      "description": "Прогноз погоды (Open-Meteo, без ключа)",
+      "base_url": "https://api.open-meteo.com",
+      "auth": {
+        "type": "none"
+      },
+      "allow": [
+        "/v1/forecast*"
+      ]
+    }
+  },
+  "webhooks": {
+    "out": {},
+    "in": {}
+  },
+  "_examples": {
+    "connectors": {
+      "exchange-rates": {
+        "description": "Курсы валют (frankfurter.dev, без ключа)",
+        "base_url": "https://api.frankfurter.dev",
+        "auth": {
+          "type": "none"
+        },
+        "allow": [
+          "/v1/latest*",
+          "/v1/*..*"
+        ]
+      },
+      "newsapi": {
+        "description": "Новости (пример header-auth)",
+        "base_url": "https://newsapi.org",
+        "auth": {
+          "type": "header",
+          "name": "X-Api-Key",
+          "env": "NEWSAPI_KEY"
+        },
+        "allow": [
+          "/v2/top-headlines*",
+          "/v2/everything*"
+        ]
+      }
+    },
+    "webhooks_out": {
+      "notify-n8n": {
+        "description": "Сценарий уведомлений в n8n",
+        "url_env": "N8N_NOTIFY_WEBHOOK_URL",
+        "requires_approval": true,
+        "secret_env": "N8N_NOTIFY_WEBHOOK_SECRET"
+      }
+    },
+    "webhooks_in": {
+      "capture": {
+        "description": "Входящий захват заметок (n8n/IFTTT → Nabu)",
+        "token_env": "NABU_HOOK_CAPTURE_TOKEN",
+        "action": "note",
+        "secret_env": "NABU_HOOK_CAPTURE_SECRET"
+      }
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "name": "nabu-claude",
+  "version": "0.20.0",
+  "private": true,
+  "description": "Nabu-claude — ИИ-Совет для всех сфер жизни внутри Claude Code. Общая БД с основным Nabu или standalone docker-стек (zero-config).",
+  "type": "module",
+  "bin": {
+    "nabu": "./cli/nabu.mjs"
+  },
+  "workspaces": [
+    "lib",
+    "mcp/memory-server",
+    "mcp/pipeline-server",
+    "mcp/council-server",
+    "mcp/voice-server",
+    "mcp/analytics-server",
+    "mcp/domain-server",
+    "mcp/improve-server",
+    "mcp/connect-server"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean",
+    "typecheck": "tsc -b",
+    "test": "tsc -b && node --test lib/test/stats.test.ts lib/test/personality.test.ts lib/test/postgres.test.ts lib/test/lib-units.test.ts lib/test/vault.test.ts lib/test/health-import.test.ts lib/test/finance-import.test.ts lib/test/ics.test.ts lib/test/hygiene.test.ts && node scripts/commons-tally.test.mjs",
+    "test:commons": "node scripts/commons-tally.test.mjs",
+    "test:hooks": "bash scripts/hooks/test-guard.sh",
+    "test:db": "tsc -b && node --env-file=.env --test lib/test/integration.test.ts",
+    "eval": "node evals/runner.mjs",
+    "eval:live": "node evals/runner.mjs --mode live --judge",
+    "eval:record": "node evals/runner.mjs --mode live --judge --record --update-baseline",
+    "smoke": "node --env-file=.env lib/dist/smoke.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.2"
+  }
+}

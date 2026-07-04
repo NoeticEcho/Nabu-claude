@@ -1,0 +1,32 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./lib"
+    },
+    {
+      "path": "./mcp/memory-server"
+    },
+    {
+      "path": "./mcp/pipeline-server"
+    },
+    {
+      "path": "./mcp/council-server"
+    },
+    {
+      "path": "./mcp/voice-server"
+    },
+    {
+      "path": "./mcp/analytics-server"
+    },
+    {
+      "path": "./mcp/domain-server"
+    },
+    {
+      "path": "./mcp/improve-server"
+    },
+    {
+      "path": "mcp/connect-server"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+# CI: build + unit tests + guard-hook regression on every push/PR.
+# Integration tests (test:db) and evals need a live stack/Claude — run locally, not here.
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build (tsc -b)
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Guard-hook regression (47 cases)
+        run: bash scripts/hooks/test-guard.sh
+
+      - name: CLI syntax
+        run: |
+          node --check cli/nabu.mjs
+          node --check cli/chat-server.mjs
+          node --check cli/telegram-bot.mjs
+          bash -n scripts/install.sh
+
+      - name: Compose config validates
+        run: NABU_PG_PASSWORD=ci docker compose -f docker-compose.yml --profile ollama config > /dev/null

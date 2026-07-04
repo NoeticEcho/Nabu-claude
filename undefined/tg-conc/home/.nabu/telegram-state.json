@@ -1,0 +1,15 @@
+{
+  "offset": 4,
+  "boundChatId": 111,
+  "topics": {
+    "10": {
+      "role": "adjutant",
+      "title": "A"
+    },
+    "20": {
+      "role": "finance",
+      "title": "B"
+    }
+  },
+  "sessions": {}
+}

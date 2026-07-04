@@ -1,0 +1,24 @@
+{
+  "name": "nabu-claude-marketplace",
+  "owner": {
+    "name": "Martin",
+    "url": "https://github.com/martin/nabu-claude"
+  },
+  "metadata": {
+    "description": "Маркетплейс для Nabu-claude — ИИ-Совет для всех сфер жизни внутри Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "nabu-claude",
+      "source": "./",
+      "description": "ИИ-Совет для всех сфер жизни: 44 агента конвейера Nabu + 9 министров + функциональные + созидатели как субагенты Claude Code; коллегиальные решения через deliberation-буфер; общая БД с основным Nabu (Supabase+pgvector+TypeDB); тяжёлая аналитика на TypeScript; приватность локально.",
+      "version": "0.20.0",
+      "category": [
+        "productivity",
+        "personal",
+        "knowledge"
+      ],
+      "strict": false
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+# schema/typedb/002_standalone_domain.tql
+# Полная доменная онтология основного Nabu (docs/07 §3.1) для STANDALONE-режима,
+# переведённая с 2.x-синтаксиса доков на 3.x flat-стиль memory.tql.
+# АДДИТИВНО поверх 000_standalone_base.tql + memory.tql (порядок применения — по имени).
+# В shared-режиме НЕ применяется — там онтология принадлежит основному приложению.
+#
+# Вынужденные отличия от docs/07 (коллизии с memory.tql, поле labels общее):
+#   - сущность `source` → `source-entity` (в memory.tql `source` — атрибут);
+#   - абстрактная иерархия nabu-thing/entity-type удалена (в memory.tql `entity-type` —
+#     атрибут); plays related:* спущено на конкретные сущности;
+#   - relation `mentioned` из доков = memory.tql `mention` (переиспользуем: note plays mentioning).
+
+define
+
+# ── Новые атрибуты (нет в memory.tql / 000_standalone_base) ──
+attribute note-id value string;
+attribute content value string;
+attribute created-at value datetime;
+attribute domain value string;
+attribute status value string;
+
+# ── Сущности (docs/07 §3.1) ──
+entity person,
+  owns name,
+  plays mention:mentioned,
+  plays related:thing-a, plays related:thing-b,
+  plays participation:participant;
+
+entity place,
+  owns name,
+  plays mention:mentioned,
+  plays related:thing-a, plays related:thing-b;
+
+entity project,
+  owns name, owns status, owns domain,
+  plays achieves:achiever,
+  plays depends-on:dependent, plays depends-on:dependency,
+  plays blocks:blocker, plays blocks:blocked,
+  plays mention:mentioned,
+  plays related:thing-a, plays related:thing-b;
+
+entity goal,
+  owns content,
+  plays achieves:achievement,
+  plays mention:mentioned,
+  plays related:thing-a, plays related:thing-b;
+
+entity habit,
+  owns name, owns domain,
+  plays mention:mentioned,
+  plays related:thing-a, plays related:thing-b;
+
+entity idea,
+  owns content,
+  plays supports:supported, plays contradicts:contradicted,
+  plays derives-from:derivative, plays derives-from:origin,
+  plays mention:mentioned,
+  plays related:thing-a, plays related:thing-b;
+
+entity source-entity,
+  owns name, owns content,
+  plays derives-from:origin,
+  plays mention:mentioned,
+  plays related:thing-a, plays related:thing-b;
+
+entity note,
+  owns note-id, owns visibility, owns status,
+  plays mention:mentioning,
+  plays supports:supporter, plays contradicts:contradictor,
+  plays related:thing-a, plays related:thing-b;
+
+entity decision,
+  owns content,
+  plays supports:supported,
+  plays mention:mentioned,
+  plays related:thing-a, plays related:thing-b;
+
+entity emotion,
+  owns name,
+  plays mention:mentioned,
+  plays related:thing-a, plays related:thing-b;
+
+entity metric,
+  owns name,
+  plays mention:mentioned,
+  plays related:thing-a, plays related:thing-b;
+
+entity quest,
+  owns name, owns status,
+  plays achieves:achiever,
+  plays mention:mentioned,
+  plays related:thing-a, plays related:thing-b;
+
+# ── Аддитивное расширение сущностей memory.tql ──
+entity concept,
+  owns name,
+  plays related:thing-a, plays related:thing-b;
+
+entity event,
+  owns created-at,
+  plays occurs-at:occurrence,
+  plays related:thing-a, plays related:thing-b;
+
+# ── Связи (docs/07 §3.1); association/participation/mention уже в memory.tql ──
+relation related,
+  relates thing-a, relates thing-b,
+  owns weight;
+
+relation depends-on,
+  relates dependent, relates dependency;
+
+relation supports,
+  relates supporter, relates supported,
+  owns confidence;
+
+relation contradicts,
+  relates contradictor, relates contradicted,
+  owns confidence;
+
+relation achieves,
+  relates achiever, relates achievement;
+
+relation blocks,
+  relates blocker, relates blocked;
+
+relation derives-from,
+  relates derivative, relates origin;
+
+# ПРИМЕЧАНИЕ: time-anchor пока никто не plays (в docs/07 тоже) — полная occurs-at
+# невставима; фактическое время события хранится атрибутом occurred-at (memory.tql).
+relation occurs-at,
+  relates occurrence, relates time-anchor;

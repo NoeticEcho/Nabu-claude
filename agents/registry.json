@@ -1,0 +1,682 @@
+{
+  "version": "0.8.0",
+  "description": "Полный реестр агентов Nabu-claude: 44 агента основного каталога Nabu (docs/09) по слоям + Совет из 9 доменных министров + функциональные агенты коллегиальности + оркестратор builder + материализованные специалисты-созидатели под work (entrepreneurship, software-dev, web-dev, copywriting). Дубли сведены (см. _notes).",
+  "_notes": {
+    "shared_roles": "Роли Nabu и Nabu-claude совпадают и НЕ дублируются: Critic (Nabu #03) = функциональный critic; Librarian (#16), Context Retriever (#17) = слой памяти; Entity Extractor (#08) = индексация; Transcriber (#06) = voice-transcriber. Адъютант надстроен над Conductor (#01).",
+    "brain": "В Nabu-claude рассуждение выполняет Claude Code (Max), а не отдельные Mastra-вызовы. 44 агента здесь — роли/skills, переиспользующие ту же логику, не сетевые вызовы.",
+    "expansion": "Узкие специалисты министерств порождаются agent-creator'ом по требованию, не заранее.",
+    "materialization": "Полное соответствие docs/09 + Совет как СУБАГЕНТЫ Claude Code (agents/*.md). Единственный skill — nabu-orchestrator (адъютант/Conductor #01, основной контекст). Все прочие (44 конвейерных + 9 министров + council/decision-maker/critic/agent-creator + созидатели + память) — субагенты. impl: skill:<slug> | agent:<slug>. Коллегиальное решение: адъютант открывает deliberation, параллельно диспатчит министров (add_position), council-субагент синтезирует (get_positions/record_synthesis), decision-maker/critic — субагенты. Тяжёлая аналитика — TypeScript MCP nabu-analytics.",
+    "servers": "7 MCP-серверов: nabu-memory (память+личность render_personality+governance+purge), nabu-pipeline (индексация), nabu-council (буфер совещаний), nabu-voice (Whisper опц.), nabu-analytics (прогноз/корреляция/аномалии/агрегаты — TypeScript), nabu-domain (projects/tasks/goals/habits/quests/character/xp — узкие tools). Доменные/аналитические таблицы скоупятся по NABU_USER_ID.",
+    "personality": "Черты agents/*.json → директивы (lib/personality.ts, PERSONALITY_RENDERING.md); засев в agent_personality (seed_personality); tool render_personality; запечены salient-директивы в профильных субагентов; эволюция через agent_personality_log (evolves=true).",
+    "self_improvement": "Фаза C: цикл само-улучшения. Данные — MCP nabu-improve (agent_effectiveness, improvement_proposal). Предлагают, не внедряют; critic ревьюит; пользователь решает (update_proposal). Эволюция личности — только evolves=true, ±1, пороги honesty/kindness, лог. Scheduled через /nabu-cron.",
+    "feedback_metrics": "Фаза D: recommendation-трекинг (таблица recommendation) → feedback-collector узнаёт исходы → record_outcome пишет agent_effectiveness(source=feedback), замыкая контур C. Метрики жизни — nabu-domain.log_metric → nabu-analytics. outcome-analyst коррелирует советы↔метрики (ассоциация, не причинность). Оркестратор фиксирует советы record_recommendation."
+  },
+  "nabu_core_agents": {
+    "orchestration": [
+      {
+        "id": 1,
+        "name": "Conductor",
+        "role": "Маршрутизация, построение DAG обработки (база адъютанта)",
+        "impl": "skill:nabu-orchestrator"
+      },
+      {
+        "id": 2,
+        "name": "UI Composer",
+        "role": "Сборка представления ответа",
+        "impl": "agent:ui-composer"
+      },
+      {
+        "id": 3,
+        "name": "Critic",
+        "role": "Проверка выходов: противоречия, галлюцинации, приватность (= функциональный critic)",
+        "impl": "agent:critic"
+      }
+    ],
+    "intake": [
+      {
+        "id": 4,
+        "name": "Scribe",
+        "role": "Приём и нормализация письменного ввода",
+        "impl": "agent:scribe"
+      },
+      {
+        "id": 5,
+        "name": "Triage",
+        "role": "Первичная сортировка ввода",
+        "impl": "agent:triage"
+      },
+      {
+        "id": 6,
+        "name": "Transcriber",
+        "role": "Голос→текст (= voice-transcriber, опц.)",
+        "impl": "agent:voice-transcriber"
+      },
+      {
+        "id": 7,
+        "name": "Web Harvester",
+        "role": "Сбор веб-контента",
+        "impl": "agent:web-harvester"
+      }
+    ],
+    "understanding": [
+      {
+        "id": 8,
+        "name": "Entity Extractor",
+        "role": "Извлечение сущностей в граф (= индексация)",
+        "impl": "agent:entity-extractor"
+      },
+      {
+        "id": 9,
+        "name": "Domain Classifier",
+        "role": "Классификация по доменам (помогает триажу Совета)",
+        "impl": "agent:domain-classifier"
+      },
+      {
+        "id": 10,
+        "name": "Affect & Mood Analyzer",
+        "role": "Анализ эмоций/настроения",
+        "impl": "agent:affect-analyzer"
+      },
+      {
+        "id": 11,
+        "name": "Intent Detector",
+        "role": "Определение намерения запроса",
+        "impl": "agent:intent-detector"
+      }
+    ],
+    "linking": [
+      {
+        "id": 12,
+        "name": "Linker",
+        "role": "Связывание сущностей в графе",
+        "impl": "agent:linker"
+      },
+      {
+        "id": 13,
+        "name": "Ontology Maintainer",
+        "role": "Поддержка онтологии TypeDB",
+        "impl": "agent:ontology-maintainer"
+      },
+      {
+        "id": 14,
+        "name": "Taxonomy Curator",
+        "role": "Курирование тегов/таксономии",
+        "impl": "agent:taxonomy-curator"
+      },
+      {
+        "id": 15,
+        "name": "Deduplicator",
+        "role": "Устранение дублей",
+        "impl": "agent:deduplicator"
+      }
+    ],
+    "memory": [
+      {
+        "id": 16,
+        "name": "Librarian",
+        "role": "Управление базой знаний (= слой памяти)",
+        "impl": "agent:librarian"
+      },
+      {
+        "id": 17,
+        "name": "Context Retriever",
+        "role": "Сбор контекста из всех хранилищ (= retriever)",
+        "impl": "agent:retriever"
+      }
+    ],
+    "synthesis": [
+      {
+        "id": 18,
+        "name": "Insight Agent",
+        "role": "Генерация инсайтов",
+        "impl": "agent:insight"
+      },
+      {
+        "id": 19,
+        "name": "Hypothesis Agent",
+        "role": "Гипотезы",
+        "impl": "agent:hypothesis"
+      },
+      {
+        "id": 20,
+        "name": "Socratic Agent",
+        "role": "Сократический диалог",
+        "impl": "agent:socratic"
+      },
+      {
+        "id": 21,
+        "name": "Digest Agent",
+        "role": "Сводки (дорогой по токенам — explicit consent)",
+        "impl": "agent:digest"
+      },
+      {
+        "id": 22,
+        "name": "Document Synthesizer",
+        "role": "Синтез документов (база Amarant-историй)",
+        "impl": "agent:document-synthesizer"
+      },
+      {
+        "id": 23,
+        "name": "Correlation Finder",
+        "role": "Поиск корреляций в данных",
+        "impl": "agent:correlation-finder"
+      }
+    ],
+    "therapy": [
+      {
+        "id": 24,
+        "name": "CBT Agent",
+        "role": "КПТ",
+        "risk": "high",
+        "constraints": "private/Ollama, disclaimer, human review, docs/28, SAFETY.md",
+        "impl": "agent:cbt"
+      },
+      {
+        "id": 25,
+        "name": "Gestalt Agent",
+        "role": "Гештальт",
+        "risk": "high",
+        "constraints": "как #24",
+        "impl": "agent:gestalt"
+      },
+      {
+        "id": 26,
+        "name": "DBT / ACT Agent",
+        "role": "DBT/ACT",
+        "risk": "high",
+        "constraints": "как #24",
+        "impl": "agent:dbt-act"
+      },
+      {
+        "id": 27,
+        "name": "IFS Agent",
+        "role": "IFS",
+        "risk": "high",
+        "constraints": "как #24",
+        "impl": "agent:ifs"
+      },
+      {
+        "id": 28,
+        "name": "Coach Agent",
+        "role": "Коучинг",
+        "risk": "medium",
+        "constraints": "docs/28",
+        "impl": "agent:coach"
+      }
+    ],
+    "habits_projects_metrics": [
+      {
+        "id": 29,
+        "name": "Habit Architect",
+        "role": "Построение привычек",
+        "impl": "agent:habit-architect"
+      },
+      {
+        "id": 30,
+        "name": "Streak Keeper",
+        "role": "Поддержка серий",
+        "impl": "agent:streak-keeper"
+      },
+      {
+        "id": 31,
+        "name": "Project Manager",
+        "role": "Управление проектами",
+        "impl": "agent:project-manager"
+      },
+      {
+        "id": 32,
+        "name": "Quest Master",
+        "role": "Квесты/цели",
+        "impl": "agent:quest-master"
+      },
+      {
+        "id": 33,
+        "name": "PARA Agent",
+        "role": "Организация по PARA",
+        "impl": "agent:para"
+      },
+      {
+        "id": 34,
+        "name": "Metrics Tracker",
+        "role": "Трекинг метрик",
+        "impl": "agent:metrics-tracker"
+      },
+      {
+        "id": 35,
+        "name": "Forecaster",
+        "role": "Прогнозы",
+        "impl": "agent:forecaster"
+      },
+      {
+        "id": 36,
+        "name": "Anomaly Detector",
+        "role": "Аномалии",
+        "impl": "agent:anomaly-detector"
+      }
+    ],
+    "research_gamification_import": [
+      {
+        "id": 37,
+        "name": "Research Assistant",
+        "role": "Исследование",
+        "impl": "agent:research-assistant"
+      },
+      {
+        "id": 38,
+        "name": "Claim Tracker",
+        "role": "Отслеживание утверждений",
+        "impl": "agent:claim-tracker"
+      },
+      {
+        "id": 39,
+        "name": "Argument Mapper",
+        "role": "Карты аргументов",
+        "impl": "agent:argument-mapper"
+      },
+      {
+        "id": 40,
+        "name": "RPG Game Master",
+        "role": "RPG-слой/XP",
+        "impl": "agent:rpg-game-master"
+      },
+      {
+        "id": 41,
+        "name": "Achievement Designer",
+        "role": "Достижения",
+        "impl": "agent:achievement-designer"
+      },
+      {
+        "id": 42,
+        "name": "Loot & Reward Agent",
+        "role": "Награды",
+        "impl": "agent:loot-reward"
+      },
+      {
+        "id": 43,
+        "name": "Import Agent",
+        "role": "Импорт данных",
+        "impl": "agent:import-agent"
+      },
+      {
+        "id": 44,
+        "name": "MCP Bridge Agent",
+        "role": "Мост к MCP-инструментам",
+        "impl": "agent:mcp-bridge"
+      }
+    ]
+  },
+  "council": [
+    {
+      "agent": "health",
+      "sphere": "Здоровье и тело",
+      "risk": "high",
+      "uses_nabu_agents": [
+        10,
+        24,
+        28
+      ],
+      "specialists": [
+        "nutrition",
+        "fitness",
+        "sleep",
+        "preventive-care"
+      ],
+      "impl": "agent:health"
+    },
+    {
+      "agent": "mind",
+      "sphere": "Психика и эмоции",
+      "risk": "high",
+      "uses_nabu_agents": [
+        10,
+        24,
+        25,
+        26,
+        27,
+        28
+      ],
+      "specialists": [
+        "emotion-regulation",
+        "mindfulness",
+        "habit-mind"
+      ],
+      "impl": "agent:mind"
+    },
+    {
+      "agent": "finance",
+      "sphere": "Финансы",
+      "risk": "high",
+      "uses_nabu_agents": [
+        34,
+        35,
+        36
+      ],
+      "specialists": [
+        "budgeting",
+        "investing",
+        "debt",
+        "insurance",
+        "retirement",
+        "tax-info"
+      ],
+      "impl": "agent:finance"
+    },
+    {
+      "agent": "work",
+      "sphere": "Работа и карьера",
+      "risk": "medium",
+      "uses_nabu_agents": [
+        31,
+        33
+      ],
+      "specialists": [
+        "career-strategy",
+        "job-search",
+        "productivity",
+        "leadership",
+        "entrepreneurship",
+        "software-dev",
+        "web-dev",
+        "copywriting"
+      ],
+      "impl": "agent:work"
+    },
+    {
+      "agent": "learning",
+      "sphere": "Учёба и знания",
+      "risk": "low",
+      "uses_nabu_agents": [
+        37,
+        38,
+        39,
+        18,
+        19,
+        20
+      ],
+      "specialists": [
+        "study-skills",
+        "research",
+        "language",
+        "skill-acquisition"
+      ],
+      "impl": "agent:learning"
+    },
+    {
+      "agent": "relationships",
+      "sphere": "Отношения",
+      "risk": "high",
+      "uses_nabu_agents": [
+        10,
+        28
+      ],
+      "specialists": [
+        "partnership",
+        "parenting",
+        "family",
+        "communication",
+        "networking"
+      ],
+      "impl": "agent:relationships"
+    },
+    {
+      "agent": "growth",
+      "sphere": "Личностный рост и смысл",
+      "risk": "medium",
+      "uses_nabu_agents": [
+        29,
+        30,
+        32,
+        40
+      ],
+      "specialists": [
+        "goals",
+        "values",
+        "purpose",
+        "spirituality"
+      ],
+      "impl": "agent:growth"
+    },
+    {
+      "agent": "lifestyle",
+      "sphere": "Образ жизни и среда",
+      "risk": "low",
+      "uses_nabu_agents": [
+        33,
+        34
+      ],
+      "specialists": [
+        "home",
+        "recreation",
+        "travel",
+        "digital-hygiene"
+      ],
+      "impl": "agent:lifestyle"
+    },
+    {
+      "agent": "admin",
+      "sphere": "Жизненная логистика",
+      "risk": "medium",
+      "uses_nabu_agents": [
+        31,
+        33,
+        5
+      ],
+      "specialists": [
+        "tasks",
+        "legal-info",
+        "planning",
+        "life-events"
+      ],
+      "impl": "agent:admin"
+    }
+  ],
+  "functional": [
+    {
+      "agent": "adjutant",
+      "role": "Оркестратор-адъютант. Надстроен над Conductor (#01). Триаж, поднятие памяти, созыв Совета, синтез.",
+      "impl": "skill:nabu-orchestrator"
+    },
+    {
+      "agent": "council",
+      "role": "Фасилитатор коллегиального решения.",
+      "impl": "agent:council"
+    },
+    {
+      "agent": "decision-maker",
+      "role": "Теория принятия решений.",
+      "impl": "agent:decision-maker"
+    },
+    {
+      "agent": "agent-creator",
+      "role": "Порождение новых агентов при нехватке компетенции.",
+      "impl": "agent:agent-creator"
+    },
+    {
+      "agent": "critic",
+      "role": "= Nabu Critic (#03). Границы компетенции, приватность, wellbeing, точность.",
+      "impl": "agent:critic"
+    },
+    {
+      "agent": "voice-transcriber",
+      "role": "= Transcriber (#06). Голос→текст, опц., неблокирующее.",
+      "impl": "agent:voice-transcriber"
+    },
+    {
+      "agent": "builder",
+      "role": "Оркестратор созидания: координирует entrepreneurship→software-dev→web-dev→copywriting и Совет для создания/запуска продукта/бизнеса/сайта. Высокорисковое — через approval.",
+      "impl": "agent:builder"
+    }
+  ],
+  "specialists": [
+    {
+      "agent": "entrepreneurship",
+      "ministry": "work",
+      "risk": "medium",
+      "role": "Стартапы/бизнес: валидация, Lean Canvas, юнит-экономика (образовательно), GTM, питч. Не юр/налог/инвест-совет.",
+      "refer_to": [
+        "юрист",
+        "бухгалтер",
+        "финсоветник"
+      ],
+      "impl": "agent:entrepreneurship"
+    },
+    {
+      "agent": "software-dev",
+      "ministry": "work",
+      "risk": "medium",
+      "role": "Разработка ПО: архитектура, стек, реализация в репо, тесты, ревью. Деплой/внешнее/секреты — через approval.",
+      "approval_for": [
+        "deploy",
+        "external",
+        "destructive",
+        "secrets"
+      ],
+      "impl": "agent:software-dev"
+    },
+    {
+      "agent": "web-dev",
+      "ministry": "work",
+      "risk": "medium",
+      "role": "Создание сайтов, преимущественно Hugo: структура, темы, шорткоды, контент, локальная сборка. Деплой/покупки — через approval.",
+      "approval_for": [
+        "deploy",
+        "purchases",
+        "external"
+      ],
+      "impl": "agent:web-dev"
+    },
+    {
+      "agent": "copywriting",
+      "ministry": "work",
+      "risk": "low",
+      "role": "Тексты для сайтов/лендингов: value prop, заголовки, CTA, tone of voice. Честно, без ложных обещаний.",
+      "impl": "agent:copywriting"
+    },
+    {
+      "agent": "marketing",
+      "ministry": "work",
+      "risk": "medium",
+      "role": "Маркетинг для solo-фаундера: позиционирование, ICP, каналы (organic/paid/content/community), воронка AARRR, метрики CAC/LTV/retention, эксперименты. Инфо и структура, не юр-заключения о рекламе, не гарантии.",
+      "refer_to": [
+        "юрист",
+        "маркетинговый подрядчик"
+      ],
+      "uses_nabu_agents": [
+        34,
+        35,
+        37
+      ],
+      "impl": "agent:marketing"
+    },
+    {
+      "agent": "startup-gtm",
+      "ministry": "work",
+      "risk": "medium",
+      "role": "Go-to-market запуски: launch-плейбуки (Product Hunt/HN/сообщества), landing+оффер, pre-launch список, pricing первых версий, GTM-гипотезы, first-100-users. Инфо и структура, не юр/налог, не гарантии успеха.",
+      "refer_to": [
+        "юрист",
+        "бухгалтер/налоговый"
+      ],
+      "uses_nabu_agents": [
+        7,
+        22,
+        37
+      ],
+      "impl": "agent:startup-gtm"
+    },
+    {
+      "agent": "sales",
+      "ministry": "work",
+      "risk": "medium",
+      "role": "Продажи для solo: outbound/inbound, discovery, квалификация (BANT-подобная), возражения, пайплайн, follow-up. Без манипуляций и давления; договоры/оферта — юрист.",
+      "refer_to": [
+        "юрист",
+        "бухгалтер/налоговый"
+      ],
+      "uses_nabu_agents": [
+        31,
+        37
+      ],
+      "impl": "agent:sales"
+    },
+    {
+      "agent": "product-strategy",
+      "ministry": "work",
+      "risk": "medium",
+      "role": "Продуктовая стратегия: JTBD, приоритизация (RICE/ICE), гигиена roadmap, discovery-интервью, продуктовые метрики, kill-критерии фич. Структурирует выбор; решения — за пользователем.",
+      "refer_to": [
+        "юрист (приватность данных)",
+        "software-dev (осуществимость)"
+      ],
+      "uses_nabu_agents": [
+        34,
+        35,
+        37
+      ],
+      "impl": "agent:product-strategy"
+    },
+    {
+      "agent": "travel-planner",
+      "ministry": "lifestyle",
+      "risk": "low",
+      "role": "Планирование путешествий: маршруты, логистика, бюджет, чек-листы (документы/страховка/аптечка), напоминания. Визы/прививки — официальные источники/врач, финрешения — финсоветник.",
+      "refer_to": [
+        "официальные источники (визы/въезд)",
+        "врач/travel-clinic",
+        "финсоветник/страховой"
+      ],
+      "uses_nabu_agents": [
+        7,
+        37
+      ],
+      "impl": "agent:travel-planner"
+    }
+  ],
+  "spawned": [],
+  "self_improvement": [
+    {
+      "agent": "nabu-researcher",
+      "impl": "agent:nabu-researcher",
+      "role": "Проактивный ресёрчер улучшений Nabu/агентов/workflow (фича 9)"
+    },
+    {
+      "agent": "capability-scout",
+      "impl": "agent:capability-scout",
+      "role": "Разведка скиллов/MCP/скриптов/плагинов из web/github; пишет скиллы под запрос (фича 11)"
+    },
+    {
+      "agent": "effectiveness-evaluator",
+      "impl": "agent:effectiveness-evaluator",
+      "role": "Оценка эффективности агентов/промптов/скиллов/Совета (фича 12)"
+    },
+    {
+      "agent": "nabu-learner",
+      "impl": "agent:nabu-learner",
+      "role": "Самообучение: эволюция личности (evolves) + предложения промптов/скиллов (фича 8)"
+    }
+  ],
+  "feedback_metrics": [
+    {
+      "agent": "feedback-collector",
+      "impl": "agent:feedback-collector",
+      "role": "Проактивный сбор обратной связи об исходах советов + ведение метрик жизни (фича 13)"
+    },
+    {
+      "agent": "outcome-analyst",
+      "impl": "agent:outcome-analyst",
+      "role": "Корреляция советов Совета с метриками жизни через nabu-analytics; ассоциация не причинность (фича 13)"
+    }
+  ],
+  "memory_pipeline": [
+    {
+      "agent": "memory-keeper",
+      "impl": "agent:memory-keeper",
+      "role": "Запись в память: эпизоды/факты/намерения/процедуры (конвейер памяти)"
+    },
+    {
+      "agent": "reflector",
+      "impl": "agent:reflector",
+      "role": "Консолидация: эпизоды→автобиографический нарратив + устойчивые факты (конвейер памяти)"
+    }
+  ]
+}

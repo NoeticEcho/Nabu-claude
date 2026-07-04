@@ -1,0 +1,48 @@
+# Nabu Commons: еженедельный детерминированный подсчёт приоритетов предложений.
+# Читает открытые issue с меткой community-proposal, считает score (👍 + 2×evidence-комменты),
+# и пишет docs/COMMUNITY_PRIORITIES.md. Merge и приоритет — advisory; решает человек-мейнтейнер.
+name: Commons tally
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: read
+
+jobs:
+  tally:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Collect community proposals
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue list \
+            --label community-proposal \
+            --state open \
+            --json number,title,reactionGroups,comments,labels,createdAt \
+            --limit 200 > /tmp/issues.json
+
+      - name: Recompute priorities
+        run: node scripts/commons-tally.mjs /tmp/issues.json > docs/COMMUNITY_PRIORITIES.md
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- docs/COMMUNITY_PRIORITIES.md; then
+            echo "No priority changes — skipping commit."
+            exit 0
+          fi
+          git config user.name  "nabu-commons-bot"
+          git config user.email "nabu-commons-bot@users.noreply.github.com"
+          git add docs/COMMUNITY_PRIORITIES.md
+          git commit -m "chore(commons): weekly priority tally"
+          git push

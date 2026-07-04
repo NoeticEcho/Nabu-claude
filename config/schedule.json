@@ -1,0 +1,124 @@
+{
+  "_readme": "Расписание agent-задач демона. enabled:true включает задачу. at=HH:MM, everyDays=минимум суток между запусками. Задачи тратят квоту Claude — включайте осознанно (nabu schedule enable <name>).",
+  "auto_update": false,
+  "jobs": [
+    {
+      "name": "consolidate",
+      "prompt": "/nabu-consolidate",
+      "at": "21:30",
+      "everyDays": 1,
+      "enabled": false
+    },
+    {
+      "name": "digest",
+      "prompt": "/nabu-digest неделя",
+      "at": "09:00",
+      "everyDays": 7,
+      "enabled": false
+    },
+    {
+      "name": "feedback",
+      "prompt": "/nabu-feedback",
+      "at": "19:00",
+      "everyDays": 3,
+      "enabled": false
+    },
+    {
+      "name": "scout",
+      "prompt": "/nabu-scout",
+      "at": "10:00",
+      "everyDays": 7,
+      "enabled": false
+    },
+    {
+      "name": "triage",
+      "prompt": "/nabu-triage",
+      "at": "08:30",
+      "everyDays": 1,
+      "enabled": false
+    },
+    {
+      "name": "backup",
+      "internal": "backup",
+      "at": "03:30",
+      "everyDays": 1,
+      "enabled": false,
+      "push": false
+    },
+    {
+      "name": "chat-retention",
+      "internal": "chat-retention",
+      "at": "04:00",
+      "everyDays": 7,
+      "enabled": false,
+      "push": false,
+      "days": 180
+    },
+    {
+      "name": "briefing",
+      "internal": "briefing",
+      "at": "08:00",
+      "everyDays": 1,
+      "enabled": false,
+      "push": true,
+      "lat": null,
+      "lon": null
+    },
+    {
+      "name": "reminders",
+      "internal": "reminders",
+      "at": "09:30",
+      "everyDays": 1,
+      "enabled": false,
+      "push": true
+    },
+    {
+      "name": "memory-hygiene",
+      "internal": "memory-hygiene",
+      "at": "05:00",
+      "everyDays": 30,
+      "enabled": false,
+      "push": true
+    },
+    {
+      "name": "healthcheck",
+      "internal": "healthcheck",
+      "at": "07:00",
+      "everyDays": 7,
+      "enabled": false,
+      "push": true
+    },
+    {
+      "name": "weekly-review",
+      "at": "18:00",
+      "everyDays": 7,
+      "enabled": false,
+      "push": true,
+      "prompt": "Проведи еженедельный обзор жизни пользователя: подними память и текущее состояние (задачи/цели/привычки/метрики за 7 дней), сравни с прошлой неделей, отметь 2-3 победы и 1-2 узких места, задай один вопрос для рефлексии. Запиши итог эпизодом (remember_episode, private). Кратко, тепло, без давления — финальные выводы за пользователем."
+    },
+    {
+      "name": "life-narrative",
+      "at": "20:00",
+      "everyDays": 30,
+      "enabled": false,
+      "push": true,
+      "prompt": "Ты — reflector Nabu. Подними эпизоды и факты за последние 30 дней (recall + list_recent), сведи их в связную главу автобиографии пользователя: главные события, изменения, настроение периода, открытые нити. Сохрани nabu-memory.save_narrative({ period: '<YYYY-MM>', narrative }) и верни главу пользователю. Только реальные события из памяти — ничего не выдумывать; мало данных — честно короткая глава."
+    },
+    {
+      "name": "quarterly-review",
+      "at": "19:00",
+      "everyDays": 90,
+      "enabled": false,
+      "push": true,
+      "prompt": "Квартальный обзор жизни: подними автобиографические главы (recall kinds autobiographical) и состояние целей/проектов за ~90 дней. Траектория: что выросло, что заглохло, какие цели пора пересмотреть или похоронить честно. 3 вопроса пользователю для переосмысления квартала. Сохрани главу save_narrative({period: '<YYYY-Qн>'}). Только реальные данные памяти."
+    },
+    {
+      "name": "yearly-review",
+      "at": "19:00",
+      "everyDays": 365,
+      "enabled": false,
+      "push": true,
+      "prompt": "Годовой обзор жизни: сведи главы автобиографии года в историю — арки, поворотные точки, кем пользователь становился. Что унести в следующий год, что оставить. Сохрани save_narrative({period: '<YYYY>'}). Тепло, честно, без пафоса; данные — только из памяти."
+    }
+  ]
+}

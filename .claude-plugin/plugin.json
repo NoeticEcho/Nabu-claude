@@ -1,0 +1,80 @@
+{
+  "name": "nabu-claude",
+  "version": "0.20.0",
+  "description": "Nabu-claude — ИИ-Совет для всех сфер жизни внутри Claude Code. Полный каталог docs/09 (44 агента) + 9 министров + функциональные + созидатели — субагенты Claude Code; адъютант-оркестратор — skill. Рабочий workspace ~/nabu (горнило→md-выход, git), hooks, проактивные задачи по расписанию, само-улучшение. Общая БД с основным Nabu.",
+  "skills": [
+    "skills/nabu-orchestrator"
+  ],
+  "commands": [
+    "commands/nabu-index.md",
+    "commands/nabu-ask.md",
+    "commands/nabu-council.md",
+    "commands/nabu-decide.md",
+    "commands/nabu-new-agent.md",
+    "commands/nabu-recall.md",
+    "commands/nabu-consolidate.md",
+    "commands/nabu-voice.md",
+    "commands/nabu-agents.md",
+    "commands/nabu-review.md",
+    "commands/nabu-build.md",
+    "commands/nabu-digest.md",
+    "commands/nabu-init.md",
+    "commands/nabu-cron.md",
+    "commands/nabu-research.md",
+    "commands/nabu-scout.md",
+    "commands/nabu-evaluate.md",
+    "commands/nabu-feedback.md",
+    "commands/nabu-metrics.md",
+    "commands/nabu-triage.md"
+  ],
+  "mcpServers": {
+    "nabu-memory": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp/memory-server/dist/index.js"
+      ]
+    },
+    "nabu-pipeline": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp/pipeline-server/dist/index.js"
+      ]
+    },
+    "nabu-council": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp/council-server/dist/index.js"
+      ]
+    },
+    "nabu-voice": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp/voice-server/dist/index.js"
+      ]
+    },
+    "nabu-analytics": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp/analytics-server/dist/index.js"
+      ]
+    },
+    "nabu-domain": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp/domain-server/dist/index.js"
+      ]
+    },
+    "nabu-improve": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp/improve-server/dist/index.js"
+      ]
+    },
+    "nabu-connect": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp/connect-server/dist/index.js"
+      ]
+    }
+  }
+}

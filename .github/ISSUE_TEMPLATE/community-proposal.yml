@@ -1,0 +1,70 @@
+name: Nabu Commons — предложение
+description: Предложить улучшение сети Nabu. Форма подходит и людям, и инстансам Nabu (генерируют её автоматически).
+title: "[proposal] "
+labels: ["community-proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за вклад в **Nabu Commons** — федеративный цикл самоулучшения сети.
+        Приоритет считается детерминированным tally-ботом еженедельно, merge делает
+        только человек-мейнтейнер. Подробности протокола — в [docs/COMMONS.md](../blob/master/docs/COMMONS.md).
+
+        > ⚠️ **Приватность.** Никаких личных данных. Только агрегаты — счётчики и проценты.
+        > Инстансы Nabu пропускают тело через критик-скраб перед отправкой.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Описание проблемы
+      description: Что не работает или чего не хватает? Опишите проблему, а не решение.
+      placeholder: Например, «Совет часто выбирает многодоменный путь для явно единодоменных запросов, тратя циклы».
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Локальные агрегаты (evidence)
+      description: >
+        Только агрегаты — счётчики/проценты, без личных данных. Подтверждают частоту/масштаб
+        проблемы на вашем инстансе. Если вы инстанс Nabu, вставьте машинный блок
+        <!--nabu-evidence ...--> (формат в docs/COMMONS.md).
+      placeholder: |
+        Например:
+        - многодоменный путь выбран в 41% запросов за 30 дней (n=212)
+        - из них 63% оказались единодоменными по факту синтеза
+    validations:
+      required: false
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Предлагаемое изменение
+      description: Что конкретно изменить? Достаточно направления — детали доработает разработчик.
+      placeholder: "Например, «Ужесточить порог триажа адъютанта: N доменов ≥ 2 И явный конфликт целей»."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Категория
+      options:
+        - feature
+        - fix
+        - perf
+        - docs
+        - agent
+        - integration
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Версия Nabu
+      description: Версия инстанса, на котором замечена проблема (например, v0.9.0).
+      placeholder: v0.9.0
+    validations:
+      required: true

@@ -1,0 +1,74 @@
+{
+  "namespace": "default",
+  "data_sources": [
+    {
+      "type": "folder",
+      "path": "./data",
+      "visibility": "private",
+      "formats": [
+        "md",
+        "txt",
+        "pdf"
+      ]
+    }
+  ],
+  "models": {
+    "brain": "claude-code",
+    "embedding": {
+      "provider": "ollama",
+      "model": "nomic-embed-text-v2-moe:latest",
+      "dimension": 768,
+      "private_only": true
+    },
+    "whisper": {
+      "provider": "faster-whisper",
+      "model": "large-v3",
+      "language": "auto"
+    }
+  },
+  "council": {
+    "convene_on_domains_gte": 2,
+    "max_ministers_per_query": 5,
+    "always_critic_high_risk": true,
+    "deliberation_budget_steps": 30
+  },
+  "privacy": {
+    "default_visibility": "private",
+    "private_local_only": true,
+    "never_log_content": true,
+    "high_risk_domains_private": [
+      "health",
+      "mind",
+      "finance",
+      "relationships"
+    ]
+  },
+  "features": {
+    "voice_transcription": "optional_non_blocking",
+    "diarization": false,
+    "personality_evolution": false,
+    "agent_creation": true,
+    "auto_consolidation": true
+  },
+  "memory": {
+    "working_ttl_hours": 24,
+    "retrieval_top_k": 12,
+    "consolidation_min_episodes": 20
+  },
+  "schema": {
+    "additive_only": true,
+    "postgres": "./schema/postgres",
+    "typedb": "./schema/typedb"
+  },
+  "calendar": {
+    "_readme": "ICS-календари без OAuth: файлы или подписки-URL (Google/Apple/Outlook экспортируют .ics). Используется брифингом и list_calendar.",
+    "ics_sources": [],
+    "horizon_days": 14
+  },
+  "commons": {
+    "_readme": "Nabu Commons — федеративное самоулучшение (docs/COMMONS.md). ВЫКЛЮЧЕНО по умолчанию: включая, вы разрешаете инстансу (всегда через ваш approval на каждое действие) публиковать агрегированные предложения/голоса/PR в открытый репозиторий.",
+    "enabled": false,
+    "repo": "noeticecho/nabu-claude",
+    "auto_suggest_votes_in_digest": false
+  }
+}
