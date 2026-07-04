@@ -12,7 +12,7 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { randomUUID, timingSafeEqual as tse } from "node:crypto";
 import { readFile, writeFile, rename, mkdir, realpath } from "node:fs/promises";
-import { appendFileSync, mkdirSync, statSync, renameSync, writeFileSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, statSync, renameSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import { allSharedConvs, isSharedConv, convTitle, roleOfConv } from "./conversations.mjs";
@@ -398,7 +398,7 @@ function extractToolNames(event) {
  * Run one Claude Code exchange, streaming results over SSE.
  * Resolves with { sessionId } once the child completes (or errors are emitted).
  */
-function runClaudeExchange({ res, claudeBin, repoRoot, message, resumeSessionId, threadId = null, mcpConfigPath = null, extraEnv = {} }) {
+function runClaudeExchange({ res, claudeBin, repoRoot, message, resumeSessionId, threadId = null, mcpConfigPath = null, extraEnv = {}, cwd = null }) {
   return new Promise((resolve) => {
     const args = [
       "-p",
@@ -414,7 +414,7 @@ function runClaudeExchange({ res, claudeBin, repoRoot, message, resumeSessionId,
     let child;
     try {
       child = spawn(claudeBin, args, {
-        cwd: repoRoot,
+        cwd: cwd || repoRoot, // адъютант работает в рабочей папке пользователя
         env: { ...process.env, ...extraEnv }, // профиль треда → NABU_NAMESPACE/USER_ID (MCP наследуют)
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -633,6 +633,9 @@ async function handleChat(req, res, opts) {
 
   const t0 = Date.now();
   // Профиль треда — ДО первого использования (TDZ-регрессия r3-C2 чинена).
+  // Снапшот файлов workspace ДО обмена — поймать созданные адъютантом файлы (отчёты).
+  const wsSnap = () => { try { return new Set(readdirSync(opts.nabuHome).filter((f) => !f.startsWith("."))); } catch { return new Set(); } };
+  const filesBefore = wsSnap();
   const threadProfile = thread.profile || "";
   const profEnv = threadProfile
     ? (() => {
@@ -650,6 +653,7 @@ async function handleChat(req, res, opts) {
     threadId: thread.id,
     mcpConfigPath: opts.mcpConfigPath,
     extraEnv: profEnv,
+    cwd: opts.nabuHome,
   });
   let answeredOffline = false;
   if (errored && !fullText && process.env.NABU_OFFLINE_FALLBACK === "1") {
@@ -683,6 +687,13 @@ async function handleChat(req, res, opts) {
     if (!res.writableEnded) res.end(); // поток держали открытым для фолбэка — закрываем в любом случае
   }
   if (fullText) persistMessage(repoRoot, thread.id, "assistant", fullText, costUsd ?? null, threadProfile);
+  // Новые файлы, созданные адъютантом в workspace за этот обмен → отдать клиенту как вложения.
+  try {
+    const after = new Set(readdirSync(opts.nabuHome).filter((f) => !f.startsWith(".")));
+    const isDoc = (f) => /\.(md|txt|csv|json|pdf|html|log|tsv|yaml|yml)$/i.test(f);
+    const fresh = [...after].filter((f) => !filesBefore.has(f) && isDoc(f));
+    if (fresh.length) sseSend(res, { type: "files", files: fresh.slice(0, 5) });
+  } catch { /* */ }
 
   // JSONL-лог обмена (для диагностики; текст сообщения НЕ пишем — приватность).
   opts.log?.({
@@ -1008,6 +1019,19 @@ function createRequestHandler(opts) {
       // GET /api/about — «Обо мне»: тёплый дайджест того, что Nabu знает о пользователе.
       // Только собственные данные пользователя в его локальном UI → private показывать можно.
       // ИНВАРИАНТ #2: vault НИКОГДА не показывается (visibility <> 'vault' / фильтр по эпизодам).
+      // GET /api/file?name=<f> — скачать файл верхнего уровня workspace (безопасно: без ../, без точечных).
+      if (method === "GET" && path === "/api/file") {
+        const name = url.searchParams.get("name") || "";
+        if (!name || name.includes("/") || name.includes("..") || name.startsWith(".")) { sendJson(res, 400, { error: "bad_name" }); return; }
+        const fp = join(opts.nabuHome, name);
+        try {
+          const buf = readFileSync(fp);
+          res.writeHead(200, { "content-type": "application/octet-stream", "content-disposition": `attachment; filename="${encodeURIComponent(name)}"` });
+          res.end(buf);
+        } catch { sendJson(res, 404, { error: "not_found" }); }
+        return;
+      }
+
       if (method === "GET" && path === "/api/about") {
         const safe = (p, fb) => Promise.resolve(p).then((x) => x).catch(() => fb);
         try {

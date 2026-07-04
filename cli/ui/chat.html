@@ -84,6 +84,9 @@
     flex: 0 0 auto;
   }
   .brand .sub { color: var(--text-faint); font-weight: 500; font-size: 12px; }
+  .attachments { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .attach-link { color: var(--accent); text-decoration: none; font-size: 14px; padding: 4px 8px; background: var(--bg-elev-2); border-radius: 8px; display: inline-block; width: fit-content; }
+  .attach-link:hover { background: var(--accent-soft); }
   .thread.shared { border-left: 2px solid var(--accent); }
   #newThreadBtn {
     margin-top: 12px;
@@ -330,6 +333,8 @@
     line-height: 1.5; max-height: 200px; padding: 5px 0;
   }
   #input::placeholder { color: var(--text-faint); }
+  #attachBtn { background: none; border: none; color: var(--text-dim); font-size: 18px; cursor: pointer; padding: 0 6px; }
+  #attachBtn:hover { color: var(--accent); }
   #sendBtn {
     flex: 0 0 auto;
     width: 38px; height: 38px; border-radius: 10px;
@@ -541,6 +546,8 @@
     </div>
     <div class="composer-wrap">
       <div class="composer">
+        <button id="attachBtn" aria-label="Прикрепить файл" title="Прикрепить файл (текст/md/csv/json/код)">📎</button>
+        <input type="file" id="fileInput" style="display:none" accept=".md,.txt,.csv,.tsv,.json,.log,.yaml,.yml,.xml,.py,.js,.ts,.sh,.html,.css,.sql" />
         <textarea id="input" rows="1" placeholder="Спросите Совет…" autocomplete="off"></textarea>
         <button id="sendBtn" aria-label="Отправить" title="Отправить">➤</button>
       </div>
@@ -576,6 +583,8 @@
     main: document.getElementById("main"),
     statsBtn: document.getElementById("statsBtn"),
     statsRefresh: document.getElementById("statsRefresh"),
+    attachBtn: document.getElementById("attachBtn"),
+    fileInput: document.getElementById("fileInput"),
     aboutBtn: document.getElementById("aboutBtn"),
     aboutRefresh: document.getElementById("aboutRefresh"),
     aboutBody: document.getElementById("aboutBody"),
@@ -1123,6 +1132,20 @@
       body.innerHTML = renderMarkdown(m.text || "");
     }
     bubble.appendChild(body);
+    // Вложения от адъютanta (файлы, созданные за обмен) — ссылки на скачивание.
+    if (m.role === "assistant" && m.files && m.files.length) {
+      var att = document.createElement("div");
+      att.className = "attachments";
+      m.files.forEach(function (fn) {
+        var a = document.createElement("a");
+        a.className = "attach-link";
+        a.href = "/api/file?name=" + encodeURIComponent(fn);
+        a.setAttribute("download", fn);
+        a.textContent = "📎 " + fn;
+        att.appendChild(a);
+      });
+      bubble.appendChild(att);
+    }
     row.appendChild(bubble);
     return row;
   }
@@ -1308,6 +1331,12 @@
         if (!assistant.text) { assistant.error = true; }
         assistant.text = (assistant.text ? assistant.text + "\n\n" : "") + "⚠ " + (evt.message || t("error"));
         finishExchange(assistant);
+        break;
+      case "files":
+        if (Array.isArray(evt.files) && evt.files.length) {
+          assistant.files = (assistant.files || []).concat(evt.files);
+          refreshLastAssistant();
+        }
         break;
       case "done":
         if (evt.threadId) state.activeId = evt.threadId;
@@ -2002,6 +2031,23 @@
       e.preventDefault();
       send();
     }
+  });
+  // Прикрепление файла: читаем текст на клиенте, вставляем содержимое в поле как контекст сообщения.
+  el.attachBtn.addEventListener("click", function () { el.fileInput.click(); });
+  el.fileInput.addEventListener("change", function () {
+    var f = el.fileInput.files && el.fileInput.files[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) { setStatus("error"); el.input.value = "(файл >5МБ — пришлите меньше или через Telegram)"; return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var content = String(reader.result || "").slice(0, 30000);
+      var pre = el.input.value.trim();
+      el.input.value = (pre ? pre + "\n\n" : "") + "[файл: " + f.name + "]\n" + content;
+      el.input.focus();
+      autoGrow();
+    };
+    reader.readAsText(f);
+    el.fileInput.value = "";
   });
   el.sendBtn.addEventListener("click", send);
   el.newBtn.addEventListener("click", newThread);

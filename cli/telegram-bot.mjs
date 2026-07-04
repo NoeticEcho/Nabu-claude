@@ -23,7 +23,7 @@
 //   имевшегося хранилища Telegram, не уходит — в облако/Claude уходит только текст расшифровки.
 
 import { spawn, spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync, unlinkSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync, unlinkSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { convId, isSharedConv } from "./conversations.mjs";
@@ -221,7 +221,7 @@ function extractAssistantText(event) {
 // накопления зовём onText(collected) — чтобы вызывающий стримил ответ в Telegram.
 // ---------------------------------------------------------------------------
 
-function runClaude({ claudeBin, repoRoot, text, resumeSessionId, mcpConfigPath, onText }) {
+function runClaude({ claudeBin, repoRoot, text, resumeSessionId, mcpConfigPath, onText, cwd }) {
   return new Promise((resolve) => {
     const args = ["-p", text, "--output-format", "stream-json", "--verbose"];
     if (resumeSessionId) args.push("--resume", resumeSessionId);
@@ -230,7 +230,7 @@ function runClaude({ claudeBin, repoRoot, text, resumeSessionId, mcpConfigPath, 
 
     let child;
     try {
-      child = spawn(claudeBin, args, { cwd: repoRoot, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+      child = spawn(claudeBin, args, { cwd: cwd || repoRoot, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
       liveChildren.add(child);
       child.once("close", () => liveChildren.delete(child));
     } catch (err) {
@@ -398,6 +398,7 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     let lastLen = 0;     // длина collected на момент последнего рендера (дельта символов)
     let sentAny = false; // отправляли ли хоть что-то (иначе — прежнее поведение на пустой ответ)
     let edits = 0;
+    const closed = []; // {id, text} завершённых сегментов — на финале рендерим КАЖДЫЙ в HTML
 
     // Точка разреза сегмента: не длиннее limit, по последней "\n" в окне, иначе жёстко.
     function cutPoint(text, start, limit) {
@@ -440,6 +441,7 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
         const seg = collected.slice(committed, end);
         if (curMsgId == null) await sendSeg(seg, false);
         else await editSeg(seg, false);
+        if (curMsgId != null) closed.push({ id: curMsgId, text: seg }); // запомнить для HTML-финала
         committed = end + skip;
         curMsgId = null;      // следующий сегмент — новое сообщение
         lastLen = committed;  // дельту считаем от начала нового сегмента
@@ -482,7 +484,12 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     }
     async function finish(fullText) {
       await pumpDone.catch(() => {});
-      await render(fullText, true);
+      await render(fullText, true); // последний сегмент уже с HTML
+      // Ранее закрытые сегменты длинного ответа отправлялись плейнтекстом — перерендерим в HTML.
+      for (const seg of closed) {
+        const res = await tg("editMessageText", { chat_id: msg.chat.id, message_id: seg.id, text: mdToTgHtml(seg.text), parse_mode: "HTML" });
+        if (res) edits++;
+      }
       return { sentAny, edits };
     }
     return { schedule, finish };
@@ -588,6 +595,13 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     const mcpConfigPath = existsSync(cfgFile) ? cfgFile : null;
     const streamer = makeStreamer(msg);
 
+    // Снапшот файлов верхнего уровня workspace ДО обмена — чтобы поймать созданные адъютантом
+    // отчёты, где бы он их ни записал (cwd теперь workspace). Внутренний .nabu/точки — исключаем.
+    const wsSnapshot = () => {
+      try { return new Set(readdirSync(nabuHome).filter((f) => !f.startsWith("."))); } catch { return new Set(); }
+    };
+    const filesBefore = wsSnapshot();
+
     // Синхронизация web↔TG: adjutant/министры — ОБЩИЙ разговор (общий thread_id + сессия + история).
     const st = await sync();
     const cid = convId(role); // conv-adjutant / conv-<министр>
@@ -606,6 +620,7 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
       result = await runClaude({
         claudeBin,
         repoRoot,
+        cwd: nabuHome, // адъютант работает в рабочей папке пользователя, не в коде
         text: prompt,
         resumeSessionId,
         mcpConfigPath,
@@ -638,8 +653,20 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     if (ttsWanted && !result.errored && answer) {
       maybeSendTts(msg, answer).catch((e) => log({ evt: "tg_tts_error", error: String(e.message).slice(0, 150) }));
     }
-    // Файлы, которые адъютант создал для пользователя (outbox) — отправить и очистить.
-    flushOutbox(msg).catch((e) => log({ evt: "tg_outbox_error", error: String(e.message).slice(0, 100) }));
+    // Файлы, которые адъютант создал для пользователя — отправить.
+    // (а) явный outbox; (б) новые файлы в workspace, появившиеся за этот обмен (отчёты и т.п.).
+    (async () => {
+      await flushOutbox(msg);
+      try {
+        const after = wsSnapshot();
+        const isDoc = (f) => /\.(md|txt|csv|json|pdf|html|log|tsv|yaml|yml)$/i.test(f);
+        const fresh = [...after].filter((f) => !filesBefore.has(f) && isDoc(f));
+        for (const f of fresh.slice(0, 5)) {
+          const fp = join(nabuHome, f);
+          try { const st = statSync(fp); if (st.isFile() && st.size < 20 * 1024 * 1024) { await sendDocumentFile(msg, fp); log({ evt: "tg_file_sent", file: f }); } } catch { /* */ }
+        }
+      } catch (e) { log({ evt: "tg_file_capture_error", error: String(e.message).slice(0, 100) }); }
+    })().catch((e) => log({ evt: "tg_outbox_error", error: String(e.message).slice(0, 100) }));
   }
 
   // ── Маршрутизация обычного текста по теме ──
