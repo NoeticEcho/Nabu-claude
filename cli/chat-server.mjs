@@ -634,7 +634,7 @@ async function handleChat(req, res, opts) {
   const t0 = Date.now();
   // Профиль треда — ДО первого использования (TDZ-регрессия r3-C2 чинена).
   // Снапшот файлов workspace ДО обмена — поймать созданные адъютантом файлы (отчёты).
-  const wsSnap = () => { try { return new Set(readdirSync(opts.nabuHome).filter((f) => !f.startsWith("."))); } catch { return new Set(); } };
+  const wsSnap = () => { try { return new Set(readdirSync(repoRoot).filter((f) => !f.startsWith("."))); } catch { return new Set(); } };
   const filesBefore = wsSnap();
   const threadProfile = thread.profile || "";
   const profEnv = threadProfile
@@ -688,10 +688,15 @@ async function handleChat(req, res, opts) {
   if (fullText) persistMessage(repoRoot, thread.id, "assistant", fullText, costUsd ?? null, threadProfile);
   // Новые файлы, созданные адъютантом в workspace за этот обмен → отдать клиенту как вложения.
   try {
-    const after = new Set(readdirSync(opts.nabuHome).filter((f) => !f.startsWith(".")));
+    const after = new Set(readdirSync(repoRoot).filter((f) => !f.startsWith(".")));
     const isDoc = (f) => /\.(md|txt|csv|json|pdf|html|log|tsv|yaml|yml)$/i.test(f);
     const fresh = [...after].filter((f) => !filesBefore.has(f) && isDoc(f));
-    if (fresh.length) sseSend(res, { type: "files", files: fresh.slice(0, 5) });
+    // Унести из кода в workspace, чтобы /api/file их отдавал и код не засорялся.
+    const delivered = [];
+    for (const f of fresh.slice(0, 5)) {
+      try { renameSync(join(repoRoot, f), join(opts.nabuHome, f)); delivered.push(f); } catch { delivered.push(f); }
+    }
+    if (delivered.length) sseSend(res, { type: "files", files: delivered });
   } catch { /* */ }
 
   // JSONL-лог обмена (для диагностики; текст сообщения НЕ пишем — приватность).

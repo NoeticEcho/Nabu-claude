@@ -597,8 +597,10 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
 
     // Снапшот файлов верхнего уровня workspace ДО обмена — чтобы поймать созданные адъютантом
     // отчёты, где бы он их ни записал (cwd теперь workspace). Внутренний .nabu/точки — исключаем.
+    // Адъютант пишет файлы относительно cwd (=repoRoot). Снапшотим repoRoot, ловим НОВЫЕ
+    // документы, отправляем и уносим в workspace (чтобы не засорять код).
     const wsSnapshot = () => {
-      try { return new Set(readdirSync(nabuHome).filter((f) => !f.startsWith("."))); } catch { return new Set(); }
+      try { return new Set(readdirSync(repoRoot).filter((f) => !f.startsWith("."))); } catch { return new Set(); }
     };
     const filesBefore = wsSnapshot();
 
@@ -661,8 +663,15 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
         const isDoc = (f) => /\.(md|txt|csv|json|pdf|html|log|tsv|yaml|yml)$/i.test(f);
         const fresh = [...after].filter((f) => !filesBefore.has(f) && isDoc(f));
         for (const f of fresh.slice(0, 5)) {
-          const fp = join(nabuHome, f);
-          try { const st = statSync(fp); if (st.isFile() && st.size < 20 * 1024 * 1024) { await sendDocumentFile(msg, fp); log({ evt: "tg_file_sent", file: f }); } } catch { /* */ }
+          const fp = join(repoRoot, f);
+          try {
+            const st = statSync(fp);
+            if (st.isFile() && st.size < 20 * 1024 * 1024) {
+              await sendDocumentFile(msg, fp);
+              log({ evt: "tg_file_sent", file: f });
+              try { renameSync(fp, join(nabuHome, f)); } catch { try { unlinkSync(fp); } catch { /* */ } } // унести из кода в workspace
+            }
+          } catch { /* */ }
         }
       } catch (e) { log({ evt: "tg_file_capture_error", error: String(e.message).slice(0, 100) }); }
     })().catch((e) => log({ evt: "tg_outbox_error", error: String(e.message).slice(0, 100) }));
