@@ -119,3 +119,35 @@ test("сортировка по началу и фильтр по горизон
 test("текст без VEVENT → пустой список", () => {
   assert.deepEqual(parseIcs("just some text\r\nno events here", { now: NOW }), []);
 });
+
+// r3-M8: EXDATE date-формы против datetime-серии обязан исключать вхождение по дню
+test("EXDATE VALUE=DATE excludes a datetime occurrence on that day", () => {
+  const ics = [
+    "BEGIN:VCALENDAR",
+    "BEGIN:VEVENT",
+    "SUMMARY:Утренняя",
+    "RRULE:FREQ=DAILY;COUNT=3",
+    "EXDATE;VALUE=DATE:20260705",
+    "DTSTART:20260704T090000",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+  const ev = parseIcs(ics, { horizonDays: 10, now: new Date(2026, 6, 4, 0, 0, 0) });
+  const days = ev.map((e) => e.start.slice(0, 10));
+  assert.deepEqual(days, ["2026-07-04", "2026-07-06"], "5 июля исключено дневным EXDATE");
+});
+
+test("EXDATE datetime-формы по-прежнему матчится точно", () => {
+  const ics = [
+    "BEGIN:VCALENDAR",
+    "BEGIN:VEVENT",
+    "SUMMARY:Точная",
+    "RRULE:FREQ=DAILY;COUNT=3",
+    "EXDATE:20260705T090000",
+    "DTSTART:20260704T090000",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+  const ev = parseIcs(ics, { horizonDays: 10, now: new Date(2026, 6, 4, 0, 0, 0) });
+  assert.equal(ev.length, 2);
+});

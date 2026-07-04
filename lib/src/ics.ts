@@ -132,7 +132,11 @@ function weekdayCode(d: Date, utc: boolean): string {
  * Раскрыть DAILY/WEEKLY-повтор в окне [windowStart, windowEnd], учитывая COUNT/UNTIL/EXDATE.
  * COUNT считает вхождения от DTSTART (до вычета EXDATE); окно — лишь отсечка для эффективности.
  */
-function expand(base: Date, kind: DateKind, rr: RRule, exdates: Set<number>, windowStart: Date, windowEnd: Date): Date[] {
+function localDayKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function expand(base: Date, kind: DateKind, rr: RRule, exdates: Set<number>, exdays: Set<string>, windowStart: Date, windowEnd: Date): Date[] {
   const utc = kind === "utc";
   const interval = rr.interval && rr.interval > 0 ? rr.interval : 1;
   const out: Date[] = [];
@@ -144,7 +148,7 @@ function expand(base: Date, kind: DateKind, rr: RRule, exdates: Set<number>, win
     if (occ.getTime() > windowEnd.getTime()) return false;
     if (rr.count != null && n >= rr.count) return false;
     n++;
-    if (occ.getTime() >= windowStart.getTime() && !exdates.has(occ.getTime())) out.push(new Date(occ));
+    if (occ.getTime() >= windowStart.getTime() && !exdates.has(occ.getTime()) && !exdays.has(localDayKey(occ))) out.push(new Date(occ));
     return true;
   };
 
@@ -208,10 +212,16 @@ export function parseIcs(text: string, opts?: IcsOptions): CalEvent[] {
     const summary = summaryRaw ? unescapeText(summaryRaw.value) : "";
     const location = locationRaw ? unescapeText(locationRaw.value) : undefined;
 
+    // r3-M8: EXDATE может быть date-формой против datetime-DTSTART (и наоборот) — реальные
+    // календари формы смешивают. Храним точные времена И календарные дни date-формных EXDATE:
+    // вхождение исключается по точному совпадению ИЛИ по дню, когда EXDATE дневной.
     const exdates = new Set<number>();
+    const exdays = new Set<string>();
     for (const ex of rec.exdates) {
       try {
-        exdates.add(parseDateValue(ex, "").date.getTime());
+        const parsed = parseDateValue(ex, "");
+        exdates.add(parsed.date.getTime());
+        if (parsed.kind === "date" || !/T/.test(ex)) exdays.add(localDayKey(parsed.date));
       } catch {
         /* игнорируем некорректный EXDATE */
       }
@@ -223,7 +233,7 @@ export function parseIcs(text: string, opts?: IcsOptions): CalEvent[] {
     if (rruleRaw) {
       const rr = parseRRule(rruleRaw.value);
       if (rr.freq === "DAILY" || rr.freq === "WEEKLY") {
-        starts = expand(startParsed.date, kind, rr, exdates, windowStart, windowEnd);
+        starts = expand(startParsed.date, kind, rr, exdates, exdays, windowStart, windowEnd);
       } else {
         starts = [startParsed.date]; // прочие FREQ не раскрываем — честная деградация
         suffix = " (повтор)";
