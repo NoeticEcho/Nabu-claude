@@ -166,6 +166,9 @@ async function cmdInit(flags) {
   ok(`Node ${process.versions.node}`);
 
   let mode = detectMode();
+  // r3-C1: свежая установка (.env ещё нет → mode="none") — это ИМЕННО тот случай, ради
+  // которого init существует. Nabu standalone-only: init всегда ведёт к standalone.
+  if (mode !== "standalone") mode = "standalone";
 
   // 1. .env (только недостающие ключи; пароли генерируются; порты — свободные,
   //    чтобы не конфликтовать с уже работающими postgres/typedb/ollama на машине)
