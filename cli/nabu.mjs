@@ -1049,6 +1049,14 @@ function backupKey() {
   return buf;
 }
 async function encryptFileGcm(src) {
+  try {
+    return await encryptFileGcmInner(src);
+  } catch (e) {
+    e.artifact = src;
+    throw e;
+  }
+}
+async function encryptFileGcmInner(src) {
   const { createCipheriv, randomBytes } = await import("node:crypto");
   const { createReadStream } = await import("node:fs");
   const { pipeline } = await import("node:stream/promises");
@@ -1087,7 +1095,7 @@ async function cmdBackup(flags = {}, log = (m) => info(m)) {
   loadEnvIntoProcess();
   const outDir = flags.out ? resolve(String(flags.out)) : join(NABU_HOME, ".backups");
   mkdirSync(outDir, { recursive: true });
-  const ts = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19);
+  const ts = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19) + "-" + process.pid;
   const made = [];
   const failed = [];
   const encQueue = []; // шифрование — после создания артефакта (--encrypt)
@@ -1175,7 +1183,17 @@ async function cmdBackup(flags = {}, log = (m) => info(m)) {
 
   // 3.5 Шифрование (--encrypt): plaintext-архивы заменяются на .enc
   for (const job of encQueue) {
-    try { await job(); } catch (e) { failed.push("encrypt"); warn(`Шифрование: ${e.message}`); }
+    try { await job(); } catch (e) {
+      failed.push("encrypt");
+      // r3-M3: плейнтекст НЕ должен пережить сбой шифрования — пользователь просил
+      // архив, безопасный для чужих узлов. Удаляем и plaintext, и частичный .enc.
+      if (e && e.artifact) {
+        for (const f of [e.artifact, e.artifact + ".enc"]) { try { unlinkSync(f); } catch { /* */ } }
+        const i = made.indexOf(e.artifact);
+        if (i >= 0) made.splice(i, 1);
+      }
+      warn(`Шифрование не удалось (${e.message}) — plaintext-архив УДАЛЁН, компонент помечен проваленным`);
+    }
   }
 
   // 4. Ретенция: по 7 последних на каждый префикс
