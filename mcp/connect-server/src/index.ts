@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { buildDepsOrExit, installGracefulShutdown, ok, degraded, fail, wrap, resolveLiveConfig, type McpToolResult } from "@nabu/lib";
 
 const deps = buildDepsOrExit("nabu-connect");
-const server = new McpServer({ name: "nabu-connect", version: "1.4.0" });
+const server = new McpServer({ name: "nabu-connect", version: "1.5.0" });
 
 const reg = ((name: string, opts: unknown, h: (...a: unknown[]) => Promise<unknown>) =>
   server.registerTool(name as never, opts as never, ((...a: unknown[]) =>
@@ -103,10 +103,15 @@ reg(
     const cfg = loadIntegrations();
     const c = cfg.connectors[name];
     if (!c) return fail(`Коннектор '${name}' не настроен (см. list_connectors / docs/INTEGRATIONS.md)`);
-    if (!pathAllowed(path, c.allow)) {
-      return fail(`Путь '${path}' вне allowlist коннектора '${name}' [${(c.allow ?? []).join(", ")}]`);
+    // r5-#1: путь не должен содержать traversal — URL нормализовал бы '..' и увёл за allowlist.
+    if (/%2e|\.\./i.test(path)) {
+      return fail(`Путь '${path}' содержит '..'/'%2e' — traversal запрещён`);
     }
     const url = new URL(c.base_url.replace(/\/+$/, "") + path);
+    // Проверяем allowlist по УЖЕ нормализованному пути (то, что реально уйдёт на сервер).
+    if (!pathAllowed(url.pathname, c.allow)) {
+      return fail(`Путь '${url.pathname}' вне allowlist коннектора '${name}' [${(c.allow ?? []).join(", ")}]`);
+    }
     for (const [k, v] of Object.entries(query ?? {})) url.searchParams.set(k, v);
     const headers: Record<string, string> = { accept: "application/json" };
     if (c.auth && c.auth.type !== "none") {

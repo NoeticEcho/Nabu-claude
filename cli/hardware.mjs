@@ -102,7 +102,8 @@ export function recommend(hw, catalog = MODEL_CATALOG) {
 /** Оценка скорости chat-модели на этом железе (грубо): warn при CPU + мало ядер. */
 export function speedNote(hw, m) {
   if (m.role !== "chat") return "";
-  if (hw.gpu && (hw.gpu.vramGb == null || hw.gpu.vramGb >= m.ramFloorGb)) return "быстро (GPU)";
+  if (hw.gpu && hw.gpu.vramGb != null && hw.gpu.vramGb >= m.ramFloorGb) return "быстро (GPU)";
+  if (hw.gpu && hw.gpu.vramGb == null) return "GPU (скорость зависит от VRAM — сверьте вручную)";
   // CPU: скорость ~ падает с размером модели и растёт с числом ядер.
   if (m.ramFloorGb <= 1) return hw.cores >= 4 ? "быстро" : "терпимо (мелкая)";
   if (m.ramFloorGb <= 4) return hw.cores >= 8 ? "терпимо" : "МЕДЛЕННО на CPU (минуты/ответ)";

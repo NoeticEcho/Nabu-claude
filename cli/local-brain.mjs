@@ -21,7 +21,13 @@ const TOOL_RESULT_CAP = 4_000; // символов результата инст
 // Ядро T1 сжато до 8 инструментов: CPU-модели тонут в большом tools-промпте (замерено:
 // 22 схемы → таймаут шага даже у 0.8b). Расширение — через NABU_BRAIN_TOOLS (csv) при GPU.
 const CORE_TOOLS = ["recall", "remember_episode", "list_tasks", "add_task", "update_task_status", "list_calendar", "list_prospective", "search_knowledge"];
-const TOOL_ALLOWLIST = new Set(process.env.NABU_BRAIN_TOOLS ? process.env.NABU_BRAIN_TOOLS.split(",").map((s) => s.trim()) : CORE_TOOLS);
+// Даже пользовательский override НЕ может выдать локальному мозгу vault/внешние/approval-tools
+// (r5-#5): vault читается только по явному запросу через Claude, не локальной моделью.
+const BRAIN_DENYLIST = new Set(["list_vault", "getContentDecrypted", "request_approval", "resolve_approval", "trigger_webhook", "call_connector"]);
+const TOOL_ALLOWLIST = new Set(
+  (process.env.NABU_BRAIN_TOOLS ? process.env.NABU_BRAIN_TOOLS.split(",").map((s) => s.trim()) : CORE_TOOLS)
+    .filter((t) => !BRAIN_DENYLIST.has(t)),
+);
 const LEGACY_FULL_ALLOWLIST = new Set([
   "recall", "remember_episode", "add_fact", "list_prospective", "add_prospective",
   "list_recent_episodes", "graph_neighbors",
@@ -158,7 +164,8 @@ export async function localBrainAnswer({ message, mcpConfigPath, model, log = ()
       for (const call of calls) {
         toolCalls++;
         const name = call.function?.name;
-        const t = toolByName.get(name);
+        // Двойная защита (r5): allowlist проверяется И при листинге, И при вызове.
+        const t = TOOL_ALLOWLIST.has(name) ? toolByName.get(name) : null;
         let resultText;
         if (!t) {
           resultText = `Инструмент '${name}' недоступен локальному мозгу.`;

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-07-04
+### Fixed (аудит-раунд 5: harness-швы + приватность расширенной поверхности)
+- **Daemon-возможности выровнены**: адъютант получил `Write` (md-артефакты Совета/дайджестов
+  снова пишутся в веб/TG), но НЕ Bash/Edit — тяжёлый build остаётся в интерактивном `/nabu-build`
+  (SKILL честно направляет туда). Раньше SKILL обещал write/build, а allowlist их не пускал.
+- **connect: path-traversal закрыт** (`/v1/x/../../admin` больше не обходит allowlist).
+- **restore**: не оставляет расшифрованный плейнтекст; psql с ON_ERROR_STOP (частичное
+  восстановление больше не рапортует успехом).
+- **offline**: честное сообщение вместо зависшего спиннера, когда локальные модели недоступны;
+  recall-фолбэк уважает профиль треда.
+- **models**: ошибка загрузки Ollama больше не даёт ложный «установлена» и не травит `.env`.
+- local-brain: denylist vault/webhook/approval даже при override; hook-токен constant-time;
+  GPU без известной VRAM не помечается «быстро».
+
 ## [1.4.0] — 2026-07-04
 ### Fixed
 - **Веб-исследование включено**: агенты (адъютант, research-assistant, web-harvester, scout)

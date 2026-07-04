@@ -57,6 +57,7 @@ const ALLOWED_TOOLS = [
   "WebSearch",
   "WebFetch",
   "Read",
+  "Write",
   "Glob",
   "Grep",
   "Task",

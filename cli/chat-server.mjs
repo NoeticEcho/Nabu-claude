@@ -10,7 +10,7 @@
 
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual as tse } from "node:crypto";
 import { readFile, writeFile, rename, mkdir, realpath } from "node:fs/promises";
 import { appendFileSync, mkdirSync, statSync, renameSync, writeFileSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -29,6 +29,7 @@ const ALLOWED_TOOLS = [
   "WebSearch",
   "WebFetch",
   "Read",
+  "Write",
   "Glob",
   "Grep",
   "Task",
@@ -45,7 +46,7 @@ const NABU_MCP_SERVERS = ["memory", "pipeline", "council", "voice", "analytics",
 /**
  * Явный MCP-конфиг для headless-сессий: `claude -p` НЕ поднимает MCP-серверы плагина
  * автоматически (проверено вживую — сессия сообщала «MCP-серверов памяти нет»).
- * Генерируем ${nabuHome}/.nabu/mcp-config.json с 7 nabu-серверами из repoRoot и передаём
+ * Генерируем ${nabuHome}/.nabu/mcp-config.json с 8 nabu-серверами из repoRoot и передаём
  * через --mcp-config. Серверы наследуют env процесса (DATABASE_URL и пр.).
  */
 export function ensureMcpConfig(nabuHome, repoRoot) {
@@ -130,8 +131,8 @@ const STATS_TTL_MS = 5000;
 let statsCache = { at: 0, data: null };
 
 /** Offline-fallback: recall из локальной памяти + локальная LLM (Ollama). Без Claude. */
-async function offlineAnswer(repoRoot, message) {
-  const deps = await getLibDeps(repoRoot);
+async function offlineAnswer(repoRoot, message, profile = "") {
+  const deps = await getLibDeps(repoRoot, profile); // r5-#3: recall в пространстве профиля треда, не main
   let context = "";
   try {
     const hits = await deps.memory.recall({ query: message, topK: 5 });
@@ -638,7 +639,7 @@ async function handleChat(req, res, opts) {
         off = `⚠️ **Локальный мозг** (Claude недоступен; локальная модель с инструментами — экспериментально)\n\n${r.answer}`;
       } catch (e) {
         opts.log?.({ evt: "local_brain_fallback", error: String(e.message).slice(0, 150) });
-        off = await offlineAnswer(repoRoot, message);
+        off = await offlineAnswer(repoRoot, message, threadProfile);
       }
       if (off) {
         sseSend(res, { type: "text", text: off });
@@ -647,6 +648,13 @@ async function handleChat(req, res, opts) {
         answeredOffline = true;
       }
     } catch (e) { opts.log?.({ evt: "offline_fallback_error", error: String(e.message).slice(0, 200) }); }
+    if (!answeredOffline) {
+      // r5-#4: и локальный мозг, и recall не смогли (напр. Ollama выключен) — НЕ молчим:
+      // отдаём честное сообщение + done, иначе клиент висит спиннером без событий.
+      const msg = "⚠️ Офлайн-режим недоступен: локальные модели не отвечают (Ollama не запущен?). Повторите позже или с полным Nabu.";
+      sseSend(res, { type: "text", text: msg });
+      sseSend(res, { type: "done", threadId: thread.id, costUsd: 0, offline: true });
+    }
     if (!res.writableEnded) res.end(); // поток держали открытым для фолбэка — закрываем в любом случае
   }
   if (fullText) persistMessage(repoRoot, thread.id, "assistant", fullText, costUsd ?? null, threadProfile);
@@ -727,7 +735,9 @@ function createRequestHandler(opts) {
         if (!hookCfg) { sendJson(res, 404, { error: "unknown_hook" }); return; }
         const expected = hookCfg.token_env ? process.env[hookCfg.token_env] : null;
         const got = url.searchParams.get("token") || req.headers["x-nabu-token"];
-        if (!expected || got !== expected) {
+        const tokOk = expected && typeof got === "string" && got.length === expected.length &&
+          (() => { try { return tse(Buffer.from(got), Buffer.from(expected)); } catch { return false; } })();
+        if (!tokOk) {
           opts.log?.({ evt: "hook_denied", name });
           sendJson(res, 403, { error: "forbidden" });
           return;

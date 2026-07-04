@@ -59,7 +59,7 @@ const CHAT_PORT = Number(process.env.NABU_CHAT_PORT || 4517);
 const DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001";
 const EMBED_MODEL = "nomic-embed-text-v2-moe:latest";
 // Узкий allowlist для headless-запусков claude (чат/расписание): MCP Nabu + чтение + субагенты.
-const ALLOWED_TOOLS = "mcp__nabu-memory,mcp__nabu-pipeline,mcp__nabu-council,mcp__nabu-domain,mcp__nabu-analytics,mcp__nabu-improve,mcp__nabu-voice,mcp__nabu-connect,WebSearch,WebFetch,Read,Glob,Grep,Task";
+const ALLOWED_TOOLS = "mcp__nabu-memory,mcp__nabu-pipeline,mcp__nabu-council,mcp__nabu-domain,mcp__nabu-analytics,mcp__nabu-improve,mcp__nabu-voice,mcp__nabu-connect,WebSearch,WebFetch,Read,Write,Glob,Grep,Task";
 
 // ── утилиты ──
 const IS_WIN = platform() === "win32";
@@ -1342,7 +1342,7 @@ async function cmdRestore(args, flags) {
   if (!(await confirm("ЗАМЕНИТЬ текущие данные содержимым бэкапа?", flags))) { info("Отменено"); return; }
 
   cmdStop({});
-  const decryptIfEnc = async (name) => {
+  const decryptIfEnc = async (name, tmpList) => {
     if (!name || !name.endsWith(".enc")) return name;
     info(`Расшифровываю ${name}…`);
     const raw = readFileSync(join(dir, name));
@@ -1353,10 +1353,12 @@ async function cmdRestore(args, flags) {
     const plain = Buffer.concat([d.update(raw.subarray(16, raw.length - 16)), d.final()]);
     const out = name.replace(/\.enc$/, "");
     writeFileSync(join(dir, out), plain);
+    tmpList.push(join(dir, out));
     return out;
   };
-  pg = await decryptIfEnc(pg);
-  td = await decryptIfEnc(td);
+  const decryptedTmp = []; // r5-#1: расшифрованные архивы удаляем в конце (иначе плейнтекст остаётся)
+  pg = await decryptIfEnc(pg, decryptedTmp);
+  td = await decryptIfEnc(td, decryptedTmp);
 
   const failedR = [];
   // 1. Postgres: рвём коннекты → drop schema public cascade → заливаем дамп (он создаёт всё сам).
@@ -1370,15 +1372,17 @@ async function cmdRestore(args, flags) {
     if (wipe.code !== 0) { failedR.push("pg-wipe: " + wipe.errOut.slice(0, 150)); }
     else {
       const res = await new Promise((resDone) => {
-        const gz = spawn("docker", ["exec", "-i", "nabu-postgres", "psql", "-h", "127.0.0.1", "-U", "nabu", "-d", "nabu", "-q"], { windowsHide: true });
+        // ON_ERROR_STOP=1: psql падает с ненулевым кодом на ПЕРВОЙ ошибке (r5-#2 — раньше
+        // успех определялся грепом усечённого stderr, ранние ошибки терялись).
+        const gz = spawn("docker", ["exec", "-i", "nabu-postgres", "psql", "-h", "127.0.0.1", "-U", "nabu", "-d", "nabu", "-v", "ON_ERROR_STOP=1", "-q"], { windowsHide: true });
         let errT = "";
         gz.stderr.on("data", (d2) => { errT = (errT + d2).slice(-500); });
         gz.on("close", (code) => resDone({ code, errT }));
         gz.on("error", (e) => resDone({ code: -1, errT: e.message }));
         createReadStream(join(dir, pg)).pipe(createGunzip()).pipe(gz.stdin);
       });
-      if (res.code === 0 && !/ERROR/i.test(res.errT)) ok(`Postgres восстановлен из ${pg}`);
-      else failedR.push(`pg-restore (${res.errT.slice(0, 150)})`);
+      if (res.code === 0) ok(`Postgres восстановлен из ${pg}`);
+      else failedR.push(`pg-restore (код ${res.code}: ${res.errT.slice(0, 150)})`);
     }
   }
   // 2. TypeDB: stop → wipe тома → untar → start.
@@ -1395,6 +1399,7 @@ async function cmdRestore(args, flags) {
     const r = await shAsync("tar", ["-xzf", join(dir, ws), "-C", NABU_HOME], { windowsHide: true });
     r.code === 0 ? ok(`Workspace восстановлен из ${ws}`) : failedR.push("workspace: " + r.errOut.slice(0, 150));
   }
+  for (const f of decryptedTmp) { try { unlinkSync(f); } catch { /* */ } } // r5-#1: стереть расшифрованные копии
   if (failedR.length) { err(`Восстановление ЧАСТИЧНОЕ: ${failedR.join(" · ")}`); process.exitCode = 1; }
   else ok("Восстановление завершено. Запустите: nabu start");
 }
@@ -1444,7 +1449,13 @@ async function cmdModels(args, flags) {
   info(`Скачиваю ${chosen.name} (однократно)…`);
   const res = await fetch(`${base}/api/pull`, { method: "POST", body: JSON.stringify({ name: chosen.name }) });
   if (!res.ok || !res.body) { err(`Не удалось начать загрузку (${res.status}) — Ollama поднят?`); process.exitCode = 1; return; }
-  await streamPull(res);
+  try {
+    await streamPull(res);
+  } catch (e) {
+    err(`Загрузка не удалась: ${String(e.message).slice(0, 200)}`);
+    process.exitCode = 1;
+    return;
+  }
   ok(`${chosen.name} установлена.`);
 
   // Прописать в .env по роли
@@ -1470,6 +1481,7 @@ async function streamPull(res) {
   const dec = new TextDecoder();
   let buf = "";
   let lastPct = -1;
+  let pullError = null;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -1480,6 +1492,7 @@ async function streamPull(res) {
       if (!line) continue;
       try {
         const j = JSON.parse(line);
+        if (j.error) { pullError = j.error; }  // r5-#3: Ollama стримит error при HTTP 200
         if (j.total && j.completed) {
           const pct = Math.floor((j.completed / j.total) * 100);
           if (pct !== lastPct && pct % 10 === 0) { process.stdout.write(`\r  ${j.status || "загрузка"}: ${pct}%   `); lastPct = pct; }
@@ -1488,6 +1501,7 @@ async function streamPull(res) {
     }
   }
   process.stdout.write("\n");
+  if (pullError) throw new Error(pullError);
 }
 
 // ── reset: стереть ДАННЫЕ и state, сохранив установку ──
