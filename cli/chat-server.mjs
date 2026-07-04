@@ -92,6 +92,9 @@ function getLibDeps(repoRoot, profile = "") {
       lib.hydrateEnv?.();
       const prof = key ? profilesConfig(repoRoot)[key] : null;
       if (key && !prof) throw new Error(`Профиль '${key}' не найден в config/profiles.json`);
+      if (prof && (!prof.namespace || !prof.user_id)) {
+        throw new Error(`Профиль '${key}' неполный (нужны namespace И user_id) — nabu profiles add ${key}`);
+      }
       return lib.buildDeps(prof ? { namespace: prof.namespace, userId: prof.user_id } : {});
     })();
     p.catch(() => { libDepsCache.delete(key); }); // повторная попытка после сбоя
@@ -557,7 +560,9 @@ async function handleChat(req, res, opts) {
     // Профиль фиксируется на треде при создании (мульти-профиль v2): вся жизнь треда —
     // в одном пространстве памяти. Неизвестный профиль игнорируем (дефолтное пространство).
     const reqProfile = typeof body.profile === "string" && body.profile ? body.profile : "";
-    const profile = reqProfile && profilesConfig(repoRoot)[reqProfile] ? reqProfile : "";
+    const reqProf = reqProfile ? profilesConfig(repoRoot)[reqProfile] : null;
+    // Пинуем только ПОЛНЫЙ профиль (fail-closed r3-C3): половинчатый = утечка в основное пространство.
+    const profile = reqProf && reqProf.namespace && reqProf.user_id ? reqProfile : "";
     thread = {
       id: randomUUID(),
       title: message.slice(0, 60),
@@ -579,7 +584,7 @@ async function handleChat(req, res, opts) {
   const profEnv = threadProfile
     ? (() => {
         const p = profilesConfig(repoRoot)[threadProfile];
-        return p ? { ...(p.namespace ? { NABU_NAMESPACE: p.namespace } : {}), ...(p.user_id ? { NABU_USER_ID: p.user_id } : {}) } : {};
+        return p && p.namespace && p.user_id ? { NABU_NAMESPACE: p.namespace, NABU_USER_ID: p.user_id } : {};
       })()
     : {};
   persistMessage(repoRoot, thread.id, "user", message, null, threadProfile); // fire-and-forget
@@ -893,7 +898,10 @@ function createRequestHandler(opts) {
 
       // GET /api/stats — дашборд (кэш 5с; при недоступности lib/БД — degraded, не 500)
       if (method === "GET" && path === "/api/profiles") {
-        sendJson(res, 200, { profiles: Object.keys(profilesConfig(repoRoot)) });
+        const all = profilesConfig(repoRoot);
+        const valid = Object.entries(all).filter(([, p]) => p?.namespace && p?.user_id).map(([n]) => n);
+        const broken = Object.keys(all).length - valid.length;
+        sendJson(res, 200, { profiles: valid, ...(broken ? { invalid: broken } : {}) });
         return;
       }
 

@@ -110,6 +110,14 @@ export interface NabuDeps {
  * не трогая process.env (веб-чат держит per-profile кэши deps параллельно).
  */
 export function buildDeps(overrides: { namespace?: string; userId?: string } = {}): NabuDeps {
+  // Изоляция профиля — ДВУХОСЕВАЯ (namespace для памяти/совещаний, userId для домена/финансов/
+  // здоровья). Половинчатый override = межпрофильная утечка (r3-C3) — отказываем fail-closed.
+  if (!!overrides.namespace !== !!overrides.userId) {
+    throw new Error(
+      "Профиль обязан задавать И namespace, И user_id (иначе часть данных утечёт в основное пространство). " +
+      "Создайте корректный профиль: nabu profiles add <имя>",
+    );
+  }
   const env = { ...loadEnv(), ...(overrides.namespace ? { namespace: overrides.namespace } : {}), ...(overrides.userId ? { userId: overrides.userId } : {}) };
   const config = loadConfig();
   const pg = Postgres.fromEnv(env);

@@ -100,11 +100,13 @@ function applyProfile() {
   const cfg = readJson(join(REPO_ROOT, "config", "profiles.json"), null);
   const prof = cfg?.profiles?.[name];
   if (!prof) {
-    warn(`Профиль '${name}' не найден в config/profiles.json — использую окружение как есть`);
-    return;
+    die(`Профиль '${name}' не найден в config/profiles.json`);
   }
-  if (prof.namespace) process.env.NABU_NAMESPACE = prof.namespace;
-  if (prof.user_id) process.env.NABU_USER_ID = prof.user_id;
+  if (!prof.namespace || !prof.user_id) {
+    die(`Профиль '${name}' неполный: нужны И namespace, И user_id (иначе межпрофильная утечка). Создайте корректно: nabu profiles add ${name}`);
+  }
+  process.env.NABU_NAMESPACE = prof.namespace;
+  process.env.NABU_USER_ID = prof.user_id;
   if (prof.telegram_chat_id) process.env.TELEGRAM_CHAT_ID = String(prof.telegram_chat_id);
   info(`Профиль: ${name} (namespace=${prof.namespace ?? "—"})`);
 }
@@ -1405,9 +1407,9 @@ WantedBy=default.target
 
 // ── main ──
 const argv = process.argv.slice(2);
-const cmd = argv[0] || "help";
+const cmd = argv.find((a) => !a.startsWith("--")) || "help"; // флаги можно и до команды
 const flags = Object.fromEntries(argv.filter((a) => a.startsWith("--")).map((a) => { const [k, v] = a.slice(2).split("="); return [k.replace(/-([a-z])/g, (_, c) => c.toUpperCase()), v ?? true]; }));
-const rest = argv.slice(1).filter((a) => !a.startsWith("--"));
+const rest = argv.filter((a) => !a.startsWith("--")).slice(1);
 if (flags.profile) globalThis.__nabuProfileFlag = String(flags.profile);
 
 const HELP = `
@@ -1451,6 +1453,29 @@ switch (cmd) {
   case "update": doUpdate(); break;
   case "doctor": await cmdDoctor(flags); break;
   case "profiles": {
+    if (rest[0] === "add" && rest[1]) {
+      loadEnvIntoProcess();
+      const name = rest[1].toLowerCase().replace(/[^a-z0-9_-]/g, "");
+      if (!name) { err("Имя профиля: латиница/цифры/дефис"); break; }
+      const pf = join(REPO_ROOT, "config", "profiles.json");
+      const cfg = readJson(pf, { profiles: {} });
+      if (cfg.profiles?.[name]) { warn(`Профиль '${name}' уже существует`); break; }
+      const lib = await import(join(REPO_ROOT, "lib", "dist", "index.js"));
+      const deps = lib.buildDeps();
+      try {
+        // users в standalone-схеме минимальна (id, created_at) — default values достаточно.
+        const u = await deps.pg.queryOne("insert into users default values returning id", []);
+        cfg.profiles = cfg.profiles ?? {};
+        cfg.profiles[name] = { namespace: `nabu-${name}`, user_id: u.id };
+        writeJson(pf, cfg);
+        ok(`Профиль '${name}' создан: namespace=nabu-${name}, user_id=${u.id.slice(0, 8)}…`);
+        info(`Использование: nabu --profile=${name} <команда>; в веб-чате появится в селекторе.`);
+      } catch (e) {
+        err(`Не удалось создать профиль: ${String(e.message).slice(0, 200)}`);
+        process.exitCode = 1;
+      } finally { await deps.pg.close().catch(() => { /* */ }); }
+      break;
+    }
     const cfg = readJson(join(REPO_ROOT, "config", "profiles.json"), null);
     if (!cfg?.profiles || !Object.keys(cfg.profiles).length) {
       info("Профили не настроены. Создайте config/profiles.json: {\"profiles\": {\"имя\": {\"namespace\": \"...\", \"user_id\": \"...\"}}}");
