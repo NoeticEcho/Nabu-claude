@@ -1614,6 +1614,9 @@ async function cmdUninstall(flags = {}) {
 function cmdInstallService() {
   const cliPath = fileURLToPath(import.meta.url);
   const os = platform();
+  // r-deploy: сервис должен читать ТОТ ЖЕ .env, что и установка (иначе systemd берёт
+  // REPO_ROOT/.env вместо деплойного — бот не стартует, БД не та). Захватываем текущий ENV_PATH.
+  const envLine = `NABU_ENV_PATH=${ENV_PATH}`;
 
   if (os === "linux") {
     if (!has("systemctl")) die("Linux без systemd: запускайте `nabu start` вручную или через cron @reboot");
@@ -1627,6 +1630,7 @@ After=network.target docker.service
 ExecStart=${process.execPath} ${cliPath} daemon
 Restart=on-failure
 Environment=NABU_HOME=${NABU_HOME}
+Environment=${envLine}
 
 [Install]
 WantedBy=default.target
@@ -1650,7 +1654,7 @@ WantedBy=default.target
     <string>${cliPath}</string>
     <string>daemon</string>
   </array>
-  <key>EnvironmentVariables</key><dict><key>NABU_HOME</key><string>${NABU_HOME}</string></dict>
+  <key>EnvironmentVariables</key><dict><key>NABU_HOME</key><string>${NABU_HOME}</string><key>NABU_ENV_PATH</key><string>${ENV_PATH}</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>StandardOutPath</key><string>${LOG_FILE}</string>
@@ -1665,7 +1669,7 @@ WantedBy=default.target
 
   if (os === "win32") {
     // Task Scheduler: запуск демона при входе пользователя.
-    const cmd = `"${process.execPath}" "${cliPath}" daemon`;
+    const cmd = `cmd /c set NABU_HOME=${NABU_HOME}&& set NABU_ENV_PATH=${ENV_PATH}&& "${process.execPath}" "${cliPath}" daemon`;
     const r = sh("schtasks", ["/Create", "/F", "/SC", "ONLOGON", "/TN", "NabuDaemon", "/TR", cmd], { windowsHide: true });
     if (r.code !== 0) die(`schtasks не удался: ${(r.errOut || r.out).slice(0, 200)}`);
     return ok('Задача планировщика "NabuDaemon" создана (запуск при входе). Удаление: schtasks /Delete /TN NabuDaemon /F');
