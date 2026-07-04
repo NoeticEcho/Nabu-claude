@@ -12,7 +12,7 @@
       "name": "nabu-claude",
       "source": "./",
       "description": "Личный ИИ-Совет для всех сфер жизни: 73 агента (9 министров, специалисты для предпринимателя, конвейер обработки) как субагенты Claude Code; коллегиальные решения с честными trade-off'ами; 7 видов памяти (Postgres+pgvector, граф TypeDB) в локальном standalone-стеке (docker, zero-config); vault-шифрование, approvals вне модели, веб-чат и Telegram, импорты здоровья/финансов, Commons.",
-      "version": "1.8.0",
+      "version": "1.8.1",
       "category": [
         "productivity",
         "personal",
