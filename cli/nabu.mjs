@@ -809,7 +809,11 @@ async function pushToTelegram(text, log, jobName = null) {
 function doUpdate(log = console.log, { inDaemon = false } = {}) {
   const wasRunning = safeDaemonPid();
   const pull = sh("git", ["-C", REPO_ROOT, "pull", "--ff-only"]);
-  if (pull.code !== 0) return err(`git pull не удался: ${pull.errOut.slice(0, 300)}`);
+  if (pull.code !== 0) {
+    err(`git pull не удался: ${pull.errOut.slice(0, 300)}`);
+    process.exitCode = 1; // r4-J2: провал апдейта не должен рапортовать успехом
+    return;
+  }
   if (/Already up to date|Уже обновлено/i.test(pull.out)) { ok("Уже последняя версия"); return; }
   info("Обновление получено → npm install && build…");
   sh(NPM, ["install", "--no-audit", "--no-fund"], { cwd: REPO_ROOT, stdio: ["ignore", "inherit", "inherit"] });
@@ -1486,7 +1490,7 @@ ${C.b}nabu${C.x} — zero-config запуск Nabu (ИИ-Совет на Claude 
   nabu update                        git pull → build → рестарт демона
   nabu stop | daemon                 остановить демон · запустить в форграунде
   nabu doctor [--deep]               диагностика (+диск/БД/лог/бэкап/расписание)
-  nabu profiles                      список профилей (--profile <имя> у любой команды)
+  nabu profiles [add <имя>]          профили: список / создать (--profile=<имя> у любой команды)
   nabu version                       версия
   nabu install-service               автозапуск: systemd (Linux) · launchd (macOS) · Task Scheduler (Windows)
   nabu backup --encrypt              бэкап с AES-256-GCM (ключ NABU_VAULT_KEY); backup-decrypt <f.enc>
@@ -1553,5 +1557,7 @@ switch (cmd) {
   case "reset": await cmdReset(flags); break;
   case "uninstall": await cmdUninstall(flags); break;
   case "version": console.log(readJson(join(REPO_ROOT, "package.json"), {}).version || "?"); break;
-  default: console.log(HELP);
+  default:
+    if (cmd !== "help") { err(`Неизвестная команда: ${cmd}`); process.exitCode = 1; }
+    console.log(HELP);
 }

@@ -136,6 +136,12 @@ export function parseBankCsv(csv: string): { txs: FinanceTx[]; warnings: string[
   const idxCurrency = findCol(header, ["валюта", "currency"]);
   const idxCategory = findCol(header, ["категория", "category"]);
 
+  // Неверный разделитель схлопывает заголовок в одну ячейку — индексы совпадают.
+  // Требуем РАЗНЫЕ колонки (r4-J3): честный отказ вместо мусорного парса.
+  if (idxDate >= 0 && idxDate === idxAmount) {
+    warnings.push("Колонки не разделились (весь заголовок в одной ячейке) — проверьте разделитель (, или ;)");
+    return { txs: [], warnings };
+  }
   if (idxDate < 0 || idxAmount < 0) {
     warnings.push(
       `Не найдены обязательные колонки (дата/сумма) в заголовке — проверьте формат выписки. Заголовок: ${header.join(delim)}`,
@@ -290,6 +296,7 @@ export class FinanceImportRepository {
       rows.push({ tx, hash, category });
     }
 
+    const multiCurrency = new Set(rows.map((r) => r.tx.currency ?? "RUB")).size > 1;
     return this.pg.tx(async (t) => {
       let inserted = 0;
       const byCategory: Record<string, number> = {};
@@ -304,16 +311,17 @@ export class FinanceImportRepository {
           params.push(u, r.tx.occurredOn, r.tx.amount, r.tx.currency ?? "RUB", r.tx.description, r.category, source, r.hash);
         }
         // on conflict (user_id, tx_hash) do nothing — реимпорт не дублирует; RETURNING даёт реально вставленные.
-        const ins = await t.query<{ amount: string; category: string }>(
+        const ins = await t.query<{ amount: string; category: string; currency: string }>(
           `insert into finance_transaction(user_id, occurred_on, amount, currency, description, category, source, tx_hash)
            values ${values.join(",")}
            on conflict (user_id, tx_hash) do nothing
-           returning amount, category`,
+           returning amount, category, currency`,
           params,
         );
         inserted += ins.length;
         for (const row of ins) {
-          const cat = row.category;
+          // >1 валюты в партии → ключ «категория (CUR)»: суммы разных валют не смешиваются (r4-J1).
+          const cat = multiCurrency ? `${row.category} (${row.currency})` : row.category;
           byCategory[cat] = (byCategory[cat] ?? 0) + Math.abs(Number(row.amount));
         }
       }
