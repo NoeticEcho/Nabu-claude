@@ -43,7 +43,11 @@ function liveConfig(name) {
     const tpl = join(REPO_ROOT, "config", name);
     try {
       mkdirSync(CONFIG_DIR, { recursive: true });
-      if (existsSync(tpl)) writeFileSync(live, readFileSync(tpl));
+      if (existsSync(tpl)) {
+        const tmp = `${live}.${process.pid}.seed`;
+        writeFileSync(tmp, readFileSync(tpl));
+        renameSync(tmp, live); // атомарный посев: конкурентный читатель не увидит полфайла
+      }
     } catch { /* нет прав/шаблона — читатели откатятся на шаблон */ }
   }
   return existsSync(live) ? live : join(REPO_ROOT, "config", name);

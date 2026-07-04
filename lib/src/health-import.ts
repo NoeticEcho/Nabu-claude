@@ -276,6 +276,8 @@ export class HealthImportRepository {
     const seen = new Set<string>();
     const unique: HealthPoint[] = [];
     for (const p of points) {
+      // Ordinal-соли (как в finance) тут НЕТ осознанно: одинаковые показания метрики в один
+      // момент — настоящие дубли (в отличие от «двух кофе»). Дедуп по тройке — корректен.
       const key = `${p.metric}\u0000${p.occurredAt}\u0000${p.value}`;
       if (seen.has(key)) continue;
       seen.add(key);

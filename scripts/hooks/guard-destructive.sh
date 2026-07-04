@@ -92,6 +92,21 @@ if has "${CMD_B}rsync([[:space:]]|$)" && has '--delete' && has "$DANGER_TGT"; th
   deny "Заблокировано: rsync --delete по системной/корневой цели. Нужен approval."
 fi
 
+# ── 2.9 Docker-тома и nabu-деструктив (r4): данные пользователя ──
+if has 'docker[[:space:]]'; then
+  has 'volume[[:space:]]+rm'                        && deny "Заблокировано: docker volume rm (тома с данными пользователя). Нужен approval."
+  has 'volume[[:space:]]+prune'                     && deny "Заблокировано: docker volume prune. Нужен approval."
+  if has 'compose' && has 'down' && { has '[[:space:]]-v([[:space:]]|$)' || has '--volumes'; }; then
+    deny "Заблокировано: docker compose down -v (уничтожает тома памяти Nabu). Нужен approval."
+  fi
+fi
+# nabu reset/uninstall с флагами, подавляющими подтверждение, — только руками пользователя.
+if has 'nabu([[:space:]]|\.mjs[[:space:]])' || has 'nabu\.mjs'; then
+  if has '(reset|uninstall)([[:space:]]|$)'; then
+    { has '--yes' || has '--purge-workspace' || has '--hard'; } && deny "Заблокировано: nabu reset/uninstall с --yes/--purge-workspace/--hard из модели. Подтверждение — только у пользователя."
+  fi
+fi
+
 # ── 3. Разрушительные git-операции ──
 if has 'git[[:space:]]'; then
   has 'reset[[:space:]]+--hard'                    && deny "Заблокировано: git reset --hard. Нужен approval."

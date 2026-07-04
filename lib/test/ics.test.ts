@@ -151,3 +151,20 @@ test("EXDATE datetime-формы по-прежнему матчится точн
   const ev = parseIcs(ics, { horizonDays: 10, now: new Date(2026, 6, 4, 0, 0, 0) });
   assert.equal(ev.length, 2);
 });
+
+// r4: дневной EXDATE против Z-серии должен исключать по UTC-дню серии, не по TZ сервера
+test("EXDATE VALUE=DATE excludes by the series' UTC day for Z-form series", () => {
+  const ics = [
+    "BEGIN:VCALENDAR",
+    "BEGIN:VEVENT",
+    "SUMMARY:Поздняя UTC",
+    "RRULE:FREQ=DAILY;COUNT=3",
+    "EXDATE;VALUE=DATE:20260705",
+    "DTSTART:20260704T233000Z",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+  const ev = parseIcs(ics, { horizonDays: 10, now: new Date(Date.UTC(2026, 6, 4)) });
+  const utcDays = ev.map((e) => new Date(e.start).toISOString().slice(0, 10));
+  assert.deepEqual(utcDays, ["2026-07-04", "2026-07-06"], "исключён именно UTC-день 07-05, независимо от TZ");
+});

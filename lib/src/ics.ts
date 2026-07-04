@@ -132,7 +132,12 @@ function weekdayCode(d: Date, utc: boolean): string {
  * Раскрыть DAILY/WEEKLY-повтор в окне [windowStart, windowEnd], учитывая COUNT/UNTIL/EXDATE.
  * COUNT считает вхождения от DTSTART (до вычета EXDATE); окно — лишь отсечка для эффективности.
  */
-function localDayKey(d: Date): string {
+function dayKeyInFrame(d: Date, kind: DateKind): string {
+  // День вхождения — в системе координат самой серии: Z-серия живёт в UTC-днях,
+  // локальная/дневная — в локальных. Иначе исключение дня зависело бы от TZ сервера.
+  if (kind === "utc") {
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  }
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
@@ -148,7 +153,7 @@ function expand(base: Date, kind: DateKind, rr: RRule, exdates: Set<number>, exd
     if (occ.getTime() > windowEnd.getTime()) return false;
     if (rr.count != null && n >= rr.count) return false;
     n++;
-    if (occ.getTime() >= windowStart.getTime() && !exdates.has(occ.getTime()) && !exdays.has(localDayKey(occ))) out.push(new Date(occ));
+    if (occ.getTime() >= windowStart.getTime() && !exdates.has(occ.getTime()) && !exdays.has(dayKeyInFrame(occ, kind))) out.push(new Date(occ));
     return true;
   };
 
@@ -221,7 +226,12 @@ export function parseIcs(text: string, opts?: IcsOptions): CalEvent[] {
       try {
         const parsed = parseDateValue(ex, "");
         exdates.add(parsed.date.getTime());
-        if (parsed.kind === "date" || !/T/.test(ex)) exdays.add(localDayKey(parsed.date));
+        if (parsed.kind === "date" || !/T/.test(ex)) {
+          // День берём из СЫРОЙ строки (буквально «этот календарный день»), без Date-конверсий:
+          // r4-фикс — через new Date(y,m,d)+localDayKey день зависел от TZ сервера.
+          const m = /^(\d{4})(\d{2})(\d{2})/.exec(ex.trim());
+          if (m) exdays.add(`${m[1]}-${m[2]}-${m[3]}`);
+        }
       } catch {
         /* игнорируем некорректный EXDATE */
       }

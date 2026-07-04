@@ -79,6 +79,19 @@ check allow 'psql -c "DELETE FROM tasks WHERE id = 1"'
 check allow 'find . -name "*.md"'
 check allow 'echo done'
 
+# ── r4: docker-тома и nabu-деструктив ──
+check block "docker volume rm nabu_nabu-pgdata"
+check block "docker volume prune -f"
+check block "docker compose -f docker-compose.yml down -v"
+check block "docker compose down --volumes"
+check allow "docker compose down"
+check allow "docker volume ls"
+check block "node cli/nabu.mjs uninstall --purge-workspace --yes"
+check block "nabu reset --yes"
+check block "nabu reset --hard --yes"
+check allow "nabu reset --dry-run"
+check allow "nabu status"
+
 echo ""
 echo "guard tests: $pass passed, $fail failed"
 [[ "$fail" -eq 0 ]]

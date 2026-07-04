@@ -2,7 +2,7 @@
 // и config/nabu.config.json. Единая точка правды для подключений и политик.
 
 import { homedir } from "node:os";
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -112,7 +112,9 @@ export function resolveLiveConfig(name: string): string {
   try {
     if (!existsSync(live) && existsSync(tpl)) {
       mkdirSync(dir, { recursive: true });
-      writeFileSync(live, readFileSync(tpl));
+      const tmp = `${live}.${process.pid}.seed`;
+      writeFileSync(tmp, readFileSync(tpl));
+      renameSync(tmp, live); // атомарный посев
     }
   } catch { /* fallback на шаблон */ }
   return existsSync(live) ? live : tpl;

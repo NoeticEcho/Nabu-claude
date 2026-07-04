@@ -4,11 +4,10 @@
 // через approval (nabu-memory.request_approval). Скоуп по пользователю.
 
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { buildDepsOrExit, installGracefulShutdown, ok, degraded, fail, wrap, loadCalendars, REPO_ROOT_PATH , resolveLiveConfig } from "@nabu/lib";
+import { buildDepsOrExit, installGracefulShutdown, ok, degraded, fail, wrap, loadCalendars , resolveLiveConfig } from "@nabu/lib";
 
 const deps = buildDepsOrExit("nabu-domain");
 const server = new McpServer({ name: "nabu-domain", version: "1.0.1" });

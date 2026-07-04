@@ -81,18 +81,21 @@ function makeLogger(nabuHome) {
 const libDepsCache = new Map();
 // Живые конфиги вне git (r3-M1): зеркало resolveLiveConfig из lib (zero-dep локальная копия).
 function liveConfigPath(repoRoot, name) {
-  const home = process.env.NABU_HOME || join(process.env.HOME || "", "nabu");
+  const home = process.env.NABU_HOME || join(homedirCompat(), "nabu");
   const dir = process.env.NABU_CONFIG_DIR || join(home, ".nabu", "config");
   const live = join(dir, name);
   const tpl = join(repoRoot, "config", name);
   try {
     if (!statSafe(live) && statSafe(tpl)) {
       mkdirSync(dir, { recursive: true });
-      writeFileSync(live, readFileSync(tpl));
+      const tmp = `${live}.${process.pid}.seed`;
+      writeFileSync(tmp, readFileSync(tpl));
+      renameSync(tmp, live); // атомарный посев
     }
   } catch { /* fallback на шаблон */ }
   return statSafe(live) ? live : tpl;
 }
+function homedirCompat() { return process.env.HOME || process.env.USERPROFILE || ""; }
 function statSafe(p) { try { statSync(p); return true; } catch { return false; } }
 
 function profilesConfig(repoRoot) {
