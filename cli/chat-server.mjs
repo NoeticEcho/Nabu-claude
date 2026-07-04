@@ -15,7 +15,7 @@ import { readFile, writeFile, rename, mkdir, realpath } from "node:fs/promises";
 import { appendFileSync, mkdirSync, statSync, renameSync, writeFileSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
-import { allSharedConvs, isSharedConv } from "./conversations.mjs";
+import { allSharedConvs, isSharedConv, convTitle, roleOfConv } from "./conversations.mjs";
 
 const CHILD_TIMEOUT_MS = 10 * 60 * 1000; // kill a stuck Claude after 10 minutes
 const ALLOWED_TOOLS = [
@@ -603,7 +603,8 @@ async function handleChat(req, res, opts) {
     // Общий роль-разговор (conv-adjutant/…): если ещё не создан — создаём с каноническим id
     // (та же сессия/история, что в Telegram), не генерируя случайный UUID.
     if (!thread && isSharedConv(body.threadId)) {
-      thread = { id: body.threadId, title: message.slice(0, 60), claudeSessionId: null, role: body.threadId.slice(5), shared: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      const _role = roleOfConv(body.threadId);
+      thread = { id: body.threadId, title: convTitle(_role), claudeSessionId: null, role: _role, shared: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       await upsertThread(nabuHome, thread);
     }
   }

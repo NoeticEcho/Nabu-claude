@@ -226,6 +226,9 @@
   .details-row { padding: 7px 0; border-top: 1px solid var(--border); }
   .details-row .dm { font-size: 14px; }
   .details-row .ds { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
+  .details-group { font-weight: 600; color: var(--text-dim); font-size: 12px; letter-spacing: .3px;
+    text-transform: uppercase; margin: 12px 0 2px; }
+  .details-group:first-of-type { margin-top: 4px; }
   .details-note { color: var(--text-faint); font-size: 13px; padding: 6px 0; }
   .approve-btns { display: flex; gap: 8px; margin-top: 7px; }
   .approve-btn { border: 1px solid var(--border); background: var(--bg-elev-2); color: var(--text);
@@ -1151,6 +1154,7 @@
     // Во время стрима переключение треда теряло in-flight ответ (аудит r2 §2.10).
     if (state.streaming) return;
     hideStats();
+    hideAbout();
     state.activeId = id;
     state.messages = loadMessages(id);
     renderThreads();
@@ -1177,6 +1181,7 @@
   function newThread() {
     if (state.streaming) return; // см. selectThread
     hideStats();
+    hideAbout();
     state.activeId = null;
     state.messages = [];
     renderThreads();
@@ -1373,6 +1378,157 @@
     if (stats.timer) { clearInterval(stats.timer); stats.timer = null; }
   }
 
+  // ---------- «Обо мне» (About-me): тёплый дайджест знаний Nabu о пользователе ----------
+  var about = { loading: false, loaded: false, data: null };
+
+  function showAbout() {
+    hideStats(); // взаимоисключение с режимом статистики
+    state.aboutVisible = true;
+    el.main.classList.add("about-mode");
+    el.aboutBtn.classList.add("active");
+    closeSidebar();
+    fetchAbout();
+  }
+  function hideAbout() {
+    if (!state.aboutVisible) return;
+    state.aboutVisible = false;
+    el.main.classList.remove("about-mode");
+    el.aboutBtn.classList.remove("active");
+  }
+  function toggleAbout() { if (state.aboutVisible) hideAbout(); else showAbout(); }
+
+  function fetchAbout() {
+    if (about.loading) return;
+    about.loading = true;
+    el.aboutRefresh.classList.add("spin");
+    if (!about.loaded) {
+      el.aboutBody.innerHTML = '<div class="stats-loading"></div>';
+      el.aboutBody.firstChild.textContent = t("loading");
+    }
+    fetch("/api/about", { headers: { "accept": "application/json" } })
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (data) {
+        about.loading = false; about.loaded = true; about.data = data || {};
+        el.aboutRefresh.classList.remove("spin");
+        renderAbout(about.data);
+      })
+      .catch(function (err) {
+        about.loading = false;
+        el.aboutRefresh.classList.remove("spin");
+        el.aboutBody.innerHTML = "";
+        var box = document.createElement("div");
+        box.className = "stats-error";
+        var msg = document.createElement("span");
+        msg.textContent = t("stats_load_error") + (err && err.message ? err.message : t("error"));
+        var retry = document.createElement("button");
+        retry.textContent = t("retry");
+        retry.addEventListener("click", function () { fetchAbout(); });
+        box.appendChild(msg); box.appendChild(retry);
+        el.aboutBody.appendChild(box);
+      });
+  }
+
+  // Карточка About-me: заголовок + строки {main, sub} — всё через textContent (данные сервера).
+  function aboutCard(icon, title, rows, emptyText) {
+    var card = document.createElement("div");
+    card.className = "card about-card";
+    var h = document.createElement("h3");
+    var ic = document.createElement("span"); ic.textContent = icon;
+    var tt = document.createElement("span"); tt.textContent = title;
+    h.appendChild(ic); h.appendChild(tt);
+    card.appendChild(h);
+    if (!rows || !rows.length) {
+      var na = document.createElement("div"); na.className = "card-na";
+      na.textContent = emptyText || t("na");
+      card.appendChild(na); return card;
+    }
+    rows.forEach(function (r) {
+      var row = document.createElement("div");
+      row.className = "details-row";
+      var m = document.createElement("div"); m.className = "dm"; m.textContent = r.main || "";
+      row.appendChild(m);
+      if (r.sub) { var s = document.createElement("div"); s.className = "ds"; s.textContent = r.sub; row.appendChild(s); }
+      card.appendChild(row);
+    });
+    return card;
+  }
+
+  var ABOUT_ATTR_I18N = {
+    intellect: "attr_intellect", wisdom: "attr_wisdom", creativity: "attr_creativity",
+    discipline: "attr_discipline", vitality: "attr_vitality", resilience: "attr_resilience",
+    sociality: "attr_sociality", wealth: "attr_wealth",
+  };
+
+  function renderAbout(d) {
+    el.aboutIntro.textContent = t("about_intro");
+    el.aboutBody.innerHTML = "";
+
+    var facts = (d && d.facts) || [];
+    var goals = (d && d.goals) || [];
+    var habits = (d && d.habits) || [];
+    var episodes = (d && d.recentEpisodes) || [];
+    var character = d && d.character;
+    var counts = (d && d.counts) || {};
+
+    // Совсем пусто → тёплое приглашение, без пустых карточек.
+    if (!facts.length && !goals.length && !habits.length && !episodes.length && !character) {
+      var empty = document.createElement("div");
+      empty.className = "about-empty";
+      empty.textContent = (d && d.note) ? d.note : t("about_empty");
+      el.aboutBody.appendChild(empty);
+      return;
+    }
+
+    var grid = document.createElement("div");
+    grid.className = "cards";
+
+    // Персонаж — строка «уровня»: суммарный XP + сильнейшая грань (level не выдумываем).
+    if (character) {
+      var charRows = [];
+      var xp = fmtNum(character.xpTotal);
+      charRows.push({ main: t("rpg_xp_total") + ": " + (xp == null ? t("na") : xp), sub: "" });
+      if (character.topAttr) {
+        var attrLabel = ABOUT_ATTR_I18N[character.topAttr] ? t(ABOUT_ATTR_I18N[character.topAttr]) : character.topAttr;
+        charRows.push({ main: t("about_strongest") + ": " + attrLabel, sub: fmtNum(character.topXp) + " XP" });
+      }
+      grid.appendChild(aboutCard("🎮", t("about_character"), charRows));
+    }
+
+    // Что я о тебе знаю — факты
+    grid.appendChild(aboutCard("🧠", t("about_facts"), facts.map(function (f) {
+      return { main: f.subject + " · " + f.predicate + " · " + f.object, sub: Math.round((Number(f.confidence) || 0) * 100) + "%" };
+    }), t("about_empty")));
+
+    // Активные цели
+    grid.appendChild(aboutCard("🎯", t("about_goals"), goals.map(function (g) {
+      return { main: g.text, sub: (g.horizon || "—") + " · " + g.status };
+    })));
+
+    // Привычки
+    grid.appendChild(aboutCard("🔁", t("about_habits"), habits.map(function (h) {
+      return { main: h.name, sub: h.targetFrequency ? String(h.targetFrequency) : (h.anchor ? String(h.anchor) : "") };
+    })));
+
+    // Недавняя память
+    grid.appendChild(aboutCard("📔", t("about_memory"), episodes.map(function (e) {
+      return { main: e.event, sub: String(e.occurredAt || "").slice(0, 16).replace("T", " ") + (e.emotion ? " · " + e.emotion : "") };
+    })));
+
+    el.aboutBody.appendChild(grid);
+
+    // Счётчики-подпись
+    var cline = document.createElement("div");
+    cline.className = "about-counts";
+    [[counts.factsTotal, "about_cnt_facts"], [counts.episodesTotal, "about_cnt_episodes"],
+     [counts.goalsActive, "about_cnt_goals"], [counts.habitsActive, "about_cnt_habits"]].forEach(function (c) {
+      if (c[0] == null) return;
+      var span = document.createElement("span");
+      span.textContent = fmtNum(c[0]) + " " + t(c[1]);
+      cline.appendChild(span);
+    });
+    if (cline.childNodes.length) el.aboutBody.appendChild(cline);
+  }
+
   // Мульти-профиль v2: селектор виден только когда профили настроены (config/profiles.json).
   state.profile = localStorage.getItem("nabu_profile") || "";
   function loadProfiles() {
@@ -1456,13 +1612,30 @@
     panel.innerHTML = '<div class="details-title"></div>';
     panel.firstChild.textContent = t("loading");
     panel.style.display = "block";
+    // Локализация с фолбэком на серверную (RU) строку, если ключа в i18n нет.
+    var loc = function (key, fallback) {
+      var m = I18N[LANG] || I18N.en;
+      if (m && m[key] != null) return m[key];
+      if (I18N.en[key] != null) return I18N.en[key];
+      return fallback;
+    };
+    var addRows = function (items) {
+      items.forEach(function (it) {
+        var row = document.createElement("div");
+        row.className = "details-row";
+        var m = document.createElement("div"); m.className = "dm"; m.textContent = it.main || "";
+        var s = document.createElement("div"); s.className = "ds"; s.textContent = it.sub || "";
+        row.appendChild(m); row.appendChild(s);
+        panel.appendChild(row);
+      });
+    };
     fetch("/api/stats/details?section=" + encodeURIComponent(section))
       .then(function (r) { return r.json(); })
       .then(function (d) {
         panel.innerHTML = "";
         var head = document.createElement("div");
         head.className = "details-title";
-        head.textContent = d.title || section;
+        head.textContent = loc("det_" + section, d.title || section);
         var x = document.createElement("button");
         x.className = "details-close"; x.textContent = "✕";
         x.onclick = function () { panel.style.display = "none"; };
@@ -1471,18 +1644,25 @@
         if (d.note) {
           var n = document.createElement("div"); n.className = "details-note"; n.textContent = d.note; panel.appendChild(n);
         }
+        if (d.groups && d.groups.length) {
+          var anyRow = false;
+          d.groups.forEach(function (g) {
+            var gh = document.createElement("div");
+            gh.className = "details-group";
+            // Динамический label сервера (напр. «Связи: <концепт>») предпочитаем локализованному ключу.
+            gh.textContent = g.label || loc("grp_" + g.key, g.key || "");
+            panel.appendChild(gh);
+            if (g.items && g.items.length) { addRows(g.items); anyRow = true; }
+            else { var ge = document.createElement("div"); ge.className = "details-note"; ge.textContent = t("empty"); panel.appendChild(ge); }
+          });
+          if (!anyRow && !d.note) { /* пусто во всех группах — note уже мог быть */ }
+          return;
+        }
         if (!d.items || !d.items.length) {
           var e = document.createElement("div"); e.className = "details-note"; e.textContent = t("empty"); panel.appendChild(e);
           return;
         }
-        d.items.forEach(function (it) {
-          var row = document.createElement("div");
-          row.className = "details-row";
-          var m = document.createElement("div"); m.className = "dm"; m.textContent = it.main || "";
-          var s = document.createElement("div"); s.className = "ds"; s.textContent = it.sub || "";
-          row.appendChild(m); row.appendChild(s);
-          panel.appendChild(row);
-        });
+        addRows(d.items);
       })
       .catch(function () { panel.innerHTML = ""; var n = document.createElement("div"); n.className = "details-note"; n.textContent = t("load_failed"); panel.appendChild(n); });
   }
@@ -1732,10 +1912,11 @@
     } else if (g.available === false) {
       grid.appendChild(statCard("🕸", t("card_graph"), [], { na: t("typedb_unavailable"), dim: true }));
     } else {
+      // Граф доступен → карточка кликабельна (drill-down концептов/связей). na/unavailable — нет.
       grid.appendChild(statCard("🕸", t("card_graph"), [
         [t("g_concepts"), g.concepts],
         [t("g_associations"), g.associations],
-      ]));
+      ], { section: "graph" }));
     }
 
     // Совет
@@ -1792,6 +1973,8 @@
 
   el.statsBtn.addEventListener("click", toggleStats);
   el.statsRefresh.addEventListener("click", function () { fetchStats(true); });
+  if (el.aboutBtn) el.aboutBtn.addEventListener("click", toggleAbout);
+  if (el.aboutRefresh) el.aboutRefresh.addEventListener("click", function () { fetchAbout(); });
   if (el.langToggle) {
     el.langToggle.addEventListener("click", function () { setLang(LANG === "ru" ? "en" : "ru"); });
   }
