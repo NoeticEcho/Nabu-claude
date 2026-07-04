@@ -398,7 +398,7 @@ function extractToolNames(event) {
  * Run one Claude Code exchange, streaming results over SSE.
  * Resolves with { sessionId } once the child completes (or errors are emitted).
  */
-function runClaudeExchange({ res, claudeBin, repoRoot, message, resumeSessionId, threadId = null, mcpConfigPath = null, extraEnv = {}, cwd = null }) {
+function runClaudeExchange({ res, claudeBin, repoRoot, message, resumeSessionId, threadId = null, mcpConfigPath = null, extraEnv = {}, cwd = null, captureFiles = null }) {
   return new Promise((resolve) => {
     const args = [
       "-p",
@@ -493,6 +493,10 @@ function runClaudeExchange({ res, claudeBin, repoRoot, message, resumeSessionId,
       if (type === "result") {
         sawResult = true;
         costUsd = event.total_cost_usd ?? null;
+        // Файлы, созданные адъютантом за обмен — ДО done (иначе поток уже закрыт).
+        if (captureFiles) {
+          try { const files = captureFiles(); if (files && files.length) sseSend(res, { type: "files", files }); } catch { /* */ }
+        }
         sseSend(res, {
           type: "done",
           threadId,
@@ -644,6 +648,17 @@ async function handleChat(req, res, opts) {
       })()
     : {};
   persistMessage(repoRoot, thread.id, "user", message, null, threadProfile); // fire-and-forget
+  const captureFiles = () => {
+    const after = new Set(readdirSync(repoRoot).filter((f) => !f.startsWith(".")));
+    const isDoc = (f) => /\.(md|txt|csv|json|pdf|html|log|tsv|yaml|yml)$/i.test(f);
+    const fresh = [...after].filter((f) => !filesBefore.has(f) && isDoc(f));
+    const delivered = [];
+    for (const f of fresh.slice(0, 5)) {
+      try { renameSync(join(repoRoot, f), join(opts.nabuHome, f)); } catch { /* оставить где есть */ }
+      delivered.push(f);
+    }
+    return delivered;
+  };
   const { sessionId, costUsd, errored, fullText } = await runClaudeExchange({
     res,
     claudeBin,
@@ -653,6 +668,7 @@ async function handleChat(req, res, opts) {
     threadId: thread.id,
     mcpConfigPath: opts.mcpConfigPath,
     extraEnv: profEnv,
+    captureFiles,
   });
   let answeredOffline = false;
   if (errored && !fullText && process.env.NABU_OFFLINE_FALLBACK === "1") {
@@ -686,18 +702,7 @@ async function handleChat(req, res, opts) {
     if (!res.writableEnded) res.end(); // поток держали открытым для фолбэка — закрываем в любом случае
   }
   if (fullText) persistMessage(repoRoot, thread.id, "assistant", fullText, costUsd ?? null, threadProfile);
-  // Новые файлы, созданные адъютантом в workspace за этот обмен → отдать клиенту как вложения.
-  try {
-    const after = new Set(readdirSync(repoRoot).filter((f) => !f.startsWith(".")));
-    const isDoc = (f) => /\.(md|txt|csv|json|pdf|html|log|tsv|yaml|yml)$/i.test(f);
-    const fresh = [...after].filter((f) => !filesBefore.has(f) && isDoc(f));
-    // Унести из кода в workspace, чтобы /api/file их отдавал и код не засорялся.
-    const delivered = [];
-    for (const f of fresh.slice(0, 5)) {
-      try { renameSync(join(repoRoot, f), join(opts.nabuHome, f)); delivered.push(f); } catch { delivered.push(f); }
-    }
-    if (delivered.length) sseSend(res, { type: "files", files: delivered });
-  } catch { /* */ }
+
 
   // JSONL-лог обмена (для диагностики; текст сообщения НЕ пишем — приватность).
   opts.log?.({
