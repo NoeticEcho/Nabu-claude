@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-07-04
+### Removed
+- **Наследие SaaS-эры вычищено**: docs/01–28 (SRS/SAD/ADR/бэклог/спеки), docs/_reference
+  (12 стратегических доков), BUILD_PROMPT — 30 файлов; wellbeing-протокол (быв. docs/28)
+  вобран в SAFETY.md без потери политики; 84 живых файла свипнуты от ссылок.
+### Added
+- **Evals активны**: fixtures записаны живым прогоном (14 кейсов council/consult/vault/connect),
+  матчеры negation-устойчивые, baseline зафиксирован — регресс-контракт работает в default-режиме.
+- **Commons вживую**: первый tally-прогон на GitHub — COMMUNITY_PRIORITIES.md публикуется
+  workflow'ом (реестр workflows переиндексирован после force-push).
+
 ## [1.0.2] — 2026-07-04
 ### Added
 - **`nabu restore <каталог>`** — корректное восстановление одной командой (pg+typedb+workspace,
