@@ -9,7 +9,7 @@ import { z } from "zod";
 import { buildDepsOrExit, installGracefulShutdown, ok, degraded, wrap, type McpToolResult } from "@nabu/lib";
 
 const deps = buildDepsOrExit("nabu-council");
-const server = new McpServer({ name: "nabu-council", version: "1.3.0" });
+const server = new McpServer({ name: "nabu-council", version: "1.4.0" });
 
 const result = ok;
 const reg = ((name: string, opts: unknown, h: (...a: unknown[]) => Promise<unknown>) =>
