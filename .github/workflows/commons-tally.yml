@@ -1,7 +1,7 @@
 # Nabu Commons: еженедельный детерминированный подсчёт приоритетов предложений.
 # Читает открытые issue с меткой community-proposal, считает score (👍 + 2×evidence-комменты),
 # и пишет docs/COMMUNITY_PRIORITIES.md. Merge и приоритет — advisory; решает человек-мейнтейнер.
-name: Commons tally
+name: Commons tally  # weekly deterministic scoring
 
 on:
   schedule:
