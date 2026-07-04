@@ -106,7 +106,7 @@ docs/       продуктовая документация · ZERO_CONFIG.md ·
 PR приветствуются — см. [CONTRIBUTING.md](CONTRIBUTING.md). Коротко о правилах:
 `cli/` остаётся без зависимостей; MCP-tools — узкие и типизированные; схемы —
 только аддитивные; инварианты приватности не обсуждаются; тесты зелёные
-(`npm test` — 34 unit, `npm run test:hooks` — 47 guard-кейсов).
+(`npm test` — 70+ unit, `npm run test:hooks` — 47 guard-кейсов).
 
 ## Лицензия
 
