@@ -33,7 +33,22 @@ const STATE_DIR = join(NABU_HOME, ".nabu");
 const ENV_PATH = process.env.NABU_ENV_PATH || join(REPO_ROOT, ".env");
 const PID_FILE = join(STATE_DIR, "daemon.pid");
 const LOG_FILE = join(STATE_DIR, "daemon.log");
-const SCHEDULE_FILE = join(REPO_ROOT, "config", "schedule.json");
+// ── Живые конфиги пользователя — ВНЕ git (r3-M1): рантайм-правки (schedule enable, profiles add,
+// календари, коннекторы) ломали `git pull` в nabu update. Репо хранит ШАБЛОНЫ (config/*),
+// живые копии — в ~/nabu/.nabu/config/ (сеются при первом обращении; NABU_CONFIG_DIR переопределяет).
+const CONFIG_DIR = process.env.NABU_CONFIG_DIR || join(NABU_HOME, ".nabu", "config");
+function liveConfig(name) {
+  const live = join(CONFIG_DIR, name);
+  if (!existsSync(live)) {
+    const tpl = join(REPO_ROOT, "config", name);
+    try {
+      mkdirSync(CONFIG_DIR, { recursive: true });
+      if (existsSync(tpl)) writeFileSync(live, readFileSync(tpl));
+    } catch { /* нет прав/шаблона — читатели откатятся на шаблон */ }
+  }
+  return existsSync(live) ? live : join(REPO_ROOT, "config", name);
+}
+const SCHEDULE_FILE = liveConfig("schedule.json");
 const SCHEDULE_STATE = join(STATE_DIR, "schedule-state.json");
 const UPDATE_STATUS = join(STATE_DIR, "update-status.json");
 const CHAT_PORT = Number(process.env.NABU_CHAT_PORT || 4517);
@@ -97,7 +112,7 @@ function applyProfile() {
   profileApplied = true;
   const name = globalThis.__nabuProfileFlag || process.env.NABU_PROFILE;
   if (!name) return;
-  const cfg = readJson(join(REPO_ROOT, "config", "profiles.json"), null);
+  const cfg = readJson(liveConfig("profiles.json"), null);
   const prof = cfg?.profiles?.[name];
   if (!prof) {
     die(`Профиль '${name}' не найден в config/profiles.json`);
@@ -215,7 +230,14 @@ async function cmdInit(flags) {
     if (up.code !== 0) die("docker compose up не удался (см. вывод выше)");
     ok("Инфраструктура запущена (127.0.0.1: pg=5433, typedb=8000/1729" + (needOllamaContainer ? ", ollama=11434" : "") + ")");
 
-    // 3. Схемы Postgres (000 standalone bootstrap + 001..007, все идемпотентны)
+    // 2.5 Живые конфиги (r3-M1): посеять все шаблоны в ~/nabu/.nabu/config/, чтобы пользователь
+  // редактировал ИХ (правки в репо ломали nabu update).
+  for (const cf of ["schedule.json", "profiles.json", "integrations.json", "nabu.config.json"]) {
+    liveConfig(cf);
+  }
+  info(`Конфиги пользователя: ${CONFIG_DIR} (репо хранит только шаблоны)`);
+
+  // 3. Схемы Postgres (000 standalone bootstrap + 001..007, все идемпотентны)
     const schemaDir = join(REPO_ROOT, "schema", "postgres");
     const files = readdirSync(schemaDir).filter((f) => f.endsWith(".sql")).sort();
     // Свежий том: PG-entrypoint после healthcheck ещё секунды создаёт БД/перезапускается
@@ -661,7 +683,7 @@ async function buildBriefing(job, log) {
   // Календарь (ICS-источники из config/nabu.config.json, если модуль и конфиг есть)
   try {
     if (lib?.loadCalendars) {
-      const cfg = readJson(join(REPO_ROOT, "config", "nabu.config.json"), {});
+      const cfg = readJson(liveConfig("nabu.config.json"), {});
       const sources = cfg?.calendar?.ics_sources ?? [];
       if (sources.length) {
         const { events } = await lib.loadCalendars(sources, { horizonDays: 1 });
@@ -1457,7 +1479,7 @@ switch (cmd) {
       loadEnvIntoProcess();
       const name = rest[1].toLowerCase().replace(/[^a-z0-9_-]/g, "");
       if (!name) { err("Имя профиля: латиница/цифры/дефис"); break; }
-      const pf = join(REPO_ROOT, "config", "profiles.json");
+      const pf = liveConfig("profiles.json");
       const cfg = readJson(pf, { profiles: {} });
       if (cfg.profiles?.[name]) { warn(`Профиль '${name}' уже существует`); break; }
       const lib = await import(join(REPO_ROOT, "lib", "dist", "index.js"));
@@ -1476,7 +1498,7 @@ switch (cmd) {
       } finally { await deps.pg.close().catch(() => { /* */ }); }
       break;
     }
-    const cfg = readJson(join(REPO_ROOT, "config", "profiles.json"), null);
+    const cfg = readJson(liveConfig("profiles.json"), null);
     if (!cfg?.profiles || !Object.keys(cfg.profiles).length) {
       info("Профили не настроены. Создайте config/profiles.json: {\"profiles\": {\"имя\": {\"namespace\": \"...\", \"user_id\": \"...\"}}}");
     } else {

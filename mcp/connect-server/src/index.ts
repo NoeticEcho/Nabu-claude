@@ -11,7 +11,7 @@ import { z } from "zod";
 import { readFileSync, existsSync } from "node:fs";
 import { createHmac, randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { buildDepsOrExit, installGracefulShutdown, ok, degraded, fail, wrap, REPO_ROOT_PATH, type McpToolResult } from "@nabu/lib";
+import { buildDepsOrExit, installGracefulShutdown, ok, degraded, fail, wrap, resolveLiveConfig, type McpToolResult } from "@nabu/lib";
 
 const deps = buildDepsOrExit("nabu-connect");
 const server = new McpServer({ name: "nabu-connect", version: "0.20.0" });
@@ -34,7 +34,7 @@ interface IntegrationsCfg {
 }
 
 function loadIntegrations(): IntegrationsCfg {
-  const p = join(REPO_ROOT_PATH, "config", "integrations.json");
+  const p = resolveLiveConfig("integrations.json");
   if (!existsSync(p)) return { connectors: {} };
   try {
     const raw = JSON.parse(readFileSync(p, "utf8")) as Partial<IntegrationsCfg>;

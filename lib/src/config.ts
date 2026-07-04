@@ -1,7 +1,8 @@
 // Конфигурация Nabu-claude: читает переменные окружения (.env через node --env-file)
 // и config/nabu.config.json. Единая точка правды для подключений и политик.
 
-import { readFileSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -98,9 +99,28 @@ export function loadEnv(): Env {
 
 let cachedConfig: NabuConfig | undefined;
 
+/**
+ * Живой конфиг пользователя вне git (r3-M1): ~/nabu/.nabu/config/<name> (сеется из шаблона
+ * config/<name> при первом обращении; NABU_CONFIG_DIR/NABU_HOME переопределяют). Возвращает
+ * путь живой копии, при недоступности — путь шаблона (read-only fallback).
+ */
+export function resolveLiveConfig(name: string): string {
+  const home = process.env.NABU_HOME || resolve(homedir(), "nabu");
+  const dir = process.env.NABU_CONFIG_DIR || resolve(home, ".nabu", "config");
+  const live = resolve(dir, name);
+  const tpl = resolve(REPO_ROOT, "config", name);
+  try {
+    if (!existsSync(live) && existsSync(tpl)) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(live, readFileSync(tpl));
+    }
+  } catch { /* fallback на шаблон */ }
+  return existsSync(live) ? live : tpl;
+}
+
 export function loadConfig(): NabuConfig {
   if (cachedConfig) return cachedConfig;
-  const raw = JSON.parse(readFileSync(resolve(REPO_ROOT, "config", "nabu.config.json"), "utf8"));
+  const raw = JSON.parse(readFileSync(resolveLiveConfig("nabu.config.json"), "utf8"));
   cachedConfig = {
     namespace: raw.namespace ?? "default",
     sharedDbWithMainNabu: raw.shared_db_with_main_nabu ?? true,

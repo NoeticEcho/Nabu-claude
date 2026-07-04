@@ -79,9 +79,25 @@ function makeLogger(nabuHome) {
 
 // Per-profile кэш deps (мульти-профиль v2): ключ "" = дефолтное пространство из env.
 const libDepsCache = new Map();
+// Живые конфиги вне git (r3-M1): зеркало resolveLiveConfig из lib (zero-dep локальная копия).
+function liveConfigPath(repoRoot, name) {
+  const home = process.env.NABU_HOME || join(process.env.HOME || "", "nabu");
+  const dir = process.env.NABU_CONFIG_DIR || join(home, ".nabu", "config");
+  const live = join(dir, name);
+  const tpl = join(repoRoot, "config", name);
+  try {
+    if (!statSafe(live) && statSafe(tpl)) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(live, readFileSync(tpl));
+    }
+  } catch { /* fallback на шаблон */ }
+  return statSafe(live) ? live : tpl;
+}
+function statSafe(p) { try { statSync(p); return true; } catch { return false; } }
+
 function profilesConfig(repoRoot) {
   try {
-    return JSON.parse(readFileSync(join(repoRoot, "config", "profiles.json"), "utf8"))?.profiles ?? {};
+    return JSON.parse(readFileSync(liveConfigPath(repoRoot, "profiles.json"), "utf8"))?.profiles ?? {};
   } catch { return {}; }
 }
 function getLibDeps(repoRoot, profile = "") {
@@ -685,7 +701,7 @@ function createRequestHandler(opts) {
         const name = path.split("/")[3];
         let hookCfg = null;
         try {
-          const integ = JSON.parse(await readFile(join(opts.repoRoot, "config", "integrations.json"), "utf8"));
+          const integ = JSON.parse(readFileSync(liveConfigPath(opts.repoRoot, "integrations.json"), "utf8"));
           hookCfg = integ?.webhooks?.in?.[name] ?? null;
         } catch { /* нет конфига */ }
         if (!hookCfg) { sendJson(res, 404, { error: "unknown_hook" }); return; }

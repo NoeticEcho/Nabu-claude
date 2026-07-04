@@ -8,7 +8,7 @@ import { resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { buildDepsOrExit, installGracefulShutdown, ok, degraded, fail, wrap, loadCalendars, REPO_ROOT_PATH } from "@nabu/lib";
+import { buildDepsOrExit, installGracefulShutdown, ok, degraded, fail, wrap, loadCalendars, REPO_ROOT_PATH , resolveLiveConfig } from "@nabu/lib";
 
 const deps = buildDepsOrExit("nabu-domain");
 const server = new McpServer({ name: "nabu-domain", version: "0.20.0" });
@@ -110,7 +110,7 @@ server.registerTool("list_calendar", {
   description: "События из ICS-календарей (файлы/URL-подписки без OAuth) на ближайшие N дней. Источники — config calendar.ics_sources. Read-only.",
   inputSchema: { days: z.number().int().min(1).max(60).default(7) }, annotations: { readOnlyHint: true },
 }, ({ days }) => wrap(async () => {
-  const cfg = JSON.parse(readFileSync(resolve(REPO_ROOT_PATH, "config", "nabu.config.json"), "utf8"));
+  const cfg = JSON.parse(readFileSync(resolveLiveConfig("nabu.config.json"), "utf8"));
   const sources = (cfg.calendar?.ics_sources ?? []) as Array<{ name?: string; url?: string; path?: string }>;
   if (!sources.length) return degraded("Календари не настроены — заполните config calendar.ics_sources", { events: [] });
   const { events, errors } = await loadCalendars(sources, { horizonDays: days });

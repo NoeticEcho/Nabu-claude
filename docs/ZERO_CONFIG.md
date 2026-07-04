@@ -172,6 +172,13 @@ nabu update    # git pull --ff-only → npm install → build → рестарт
 nabu doctor    # node/docker/claude/.env/сборка/ollama/модель/smoke — с кодом выхода
 ```
 
+## Где живут ваши настройки
+
+Рантайм-конфиги — в **`~/nabu/.nabu/config/`** (`schedule.json`, `profiles.json`,
+`integrations.json`, `nabu.config.json`): `nabu init` сеет их из шаблонов репозитория, дальше
+правьте живые копии — обновления (`nabu update`) их не трогают и git-конфликтов не создают.
+`NABU_CONFIG_DIR` переопределяет путь. Файлы в `config/` репозитория — только шаблоны.
+
 ## Обучаемая проактивность
 
 Под каждым проактивным push'ем (брифинг, напоминания, обзоры) — кнопки **👍 Полезно / 🔇 Реже**:
