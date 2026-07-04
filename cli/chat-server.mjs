@@ -526,10 +526,14 @@ function runClaudeExchange({ res, claudeBin, repoRoot, message, resumeSessionId,
       if (!sawResult) {
         errored = true;
         const detail = stderrTail ? ` — ${stderrTail}` : "";
-        sseSend(res, {
-          type: "error",
-          message: `claude exited (code ${code}) without a result${detail}`,
-        });
+        // При активном offline-фолбэке error-событие не шлём: следом придёт честный
+        // офлайн-ответ (или handleChat закроет поток с ошибкой сам).
+        if (!(process.env.NABU_OFFLINE_FALLBACK === "1" && !fullText)) {
+          sseSend(res, {
+            type: "error",
+            message: `claude exited (code ${code}) without a result${detail}`,
+          });
+        }
       }
       finish();
     });
