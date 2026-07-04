@@ -653,7 +653,6 @@ async function handleChat(req, res, opts) {
     threadId: thread.id,
     mcpConfigPath: opts.mcpConfigPath,
     extraEnv: profEnv,
-    cwd: opts.nabuHome,
   });
   let answeredOffline = false;
   if (errored && !fullText && process.env.NABU_OFFLINE_FALLBACK === "1") {

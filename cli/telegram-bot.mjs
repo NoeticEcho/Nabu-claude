@@ -620,7 +620,6 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
       result = await runClaude({
         claudeBin,
         repoRoot,
-        cwd: nabuHome, // адъютант работает в рабочей папке пользователя, не в коде
         text: prompt,
         resumeSessionId,
         mcpConfigPath,
