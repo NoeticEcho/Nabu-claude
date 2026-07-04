@@ -73,6 +73,19 @@ function sh(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { encoding: "utf8", ...opts });
   return { code: r.status ?? -1, out: (r.stdout || "").trim(), errOut: (r.stderr || "").trim() };
 }
+/** Async-двойник sh(): для путей, живущих внутри демона (r3-M2 — spawnSync фризил event-loop:
+ * ночной tar тома TypeDB на минуты убивал чат и TG). */
+function shAsync(cmd, args, opts = {}) {
+  return new Promise((res) => {
+    const child = spawn(cmd, args, { ...opts });
+    let out = "";
+    let errOut = "";
+    child.stdout?.on("data", (d) => { out += d; });
+    child.stderr?.on("data", (d) => { errOut += d; });
+    child.on("error", (e) => res({ code: -1, out: out.trim(), errOut: (errOut + e.message).trim() }));
+    child.on("close", (code) => res({ code: code ?? -1, out: out.trim(), errOut: errOut.trim() }));
+  });
+}
 const has = (bin) => sh(platform() === "win32" ? "where" : "which", [bin]).code === 0;
 
 function readEnvFile() {
@@ -948,10 +961,10 @@ async function deepChecks() {
   // 2. Размер БД и живость стека
   if (detectMode() === "standalone" && dockerAvailable()) {
     for (const c of ["nabu-postgres", "nabu-typedb"]) {
-      const r = sh("docker", ["inspect", "--format", "{{.State.Running}}", c], { windowsHide: true });
+      const r = await shAsync("docker", ["inspect", "--format", "{{.State.Running}}", c], { windowsHide: true });
       if (r.code !== 0 || !r.out.includes("true")) warns.push(`Контейнер ${c} не запущен`);
     }
-    const sz = sh("docker", ["exec", "nabu-postgres", "psql", "-U", "nabu", "-d", "nabu", "-tAc", "select pg_database_size('nabu')"], { windowsHide: true });
+    const sz = await shAsync("docker", ["exec", "nabu-postgres", "psql", "-U", "nabu", "-d", "nabu", "-tAc", "select pg_database_size('nabu')"], { windowsHide: true });
     const bytes = Number(sz.out.trim());
     if (sz.code === 0 && bytes > 20e9) warns.push(`БД выросла до ${(bytes / 1e9).toFixed(1)} ГБ — проверьте ретенцию`);
   }
@@ -1145,9 +1158,9 @@ async function cmdBackup(flags = {}, log = (m) => info(m)) {
       const userArg = !IS_WIN && typeof process.getuid === "function"
         ? ["--user", `${process.getuid()}:${process.getgid()}`]
         : [];
-      sh("docker", ["stop", "nabu-typedb"], { windowsHide: true });
-      const r = sh("docker", ["run", "--rm", ...userArg, "-v", "nabu_nabu-typedb:/data:ro", "-v", `${outDir}:/backup`, "alpine", "tar", "czf", `/backup/typedb-${ts}.tar.gz`, "-C", "/data", "."], { windowsHide: true });
-      sh("docker", ["start", "nabu-typedb"], { windowsHide: true });
+      await shAsync("docker", ["stop", "nabu-typedb"], { windowsHide: true });
+      const r = await shAsync("docker", ["run", "--rm", ...userArg, "-v", "nabu_nabu-typedb:/data:ro", "-v", `${outDir}:/backup`, "alpine", "tar", "czf", `/backup/typedb-${ts}.tar.gz`, "-C", "/data", "."], { windowsHide: true });
+      await shAsync("docker", ["start", "nabu-typedb"], { windowsHide: true });
       accept(r.code === 0, dst, "TypeDB", 500, r.errOut);
     }
   }
@@ -1156,7 +1169,7 @@ async function cmdBackup(flags = {}, log = (m) => info(m)) {
   //    bsdtar (macOS/Windows) не матчит "./"-паттерны, и архив заглатывал бы прошлые бэкапы.
   if (existsSync(NABU_HOME)) {
     const dst = join(outDir, `workspace-${ts}.tar.gz`);
-    const r = sh("tar", ["-czf", dst, "--exclude=.backups", "--exclude=.nabu/tmp", "-C", NABU_HOME, "."], { windowsHide: true });
+    const r = await shAsync("tar", ["-czf", dst, "--exclude=.backups", "--exclude=.nabu/tmp", "-C", NABU_HOME, "."], { windowsHide: true });
     accept(r.code === 0, dst, "Workspace", 100, r.errOut);
   }
 
