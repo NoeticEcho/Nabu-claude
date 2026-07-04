@@ -15,6 +15,7 @@ import { readFile, writeFile, rename, mkdir, realpath } from "node:fs/promises";
 import { appendFileSync, mkdirSync, statSync, renameSync, writeFileSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
+import { allSharedConvs, isSharedConv } from "./conversations.mjs";
 
 const CHILD_TIMEOUT_MS = 10 * 60 * 1000; // kill a stuck Claude after 10 minutes
 const ALLOWED_TOOLS = [
@@ -152,6 +153,23 @@ async function offlineAnswer(repoRoot, message, profile = "") {
   const text = (j.response || j.thinking || "").trim();
   if (!text) return null;
   return `⚠️ **Офлайн-режим** (Claude недоступен; отвечает локальная модель ${model} по памяти — возможности ограничены)\n\n${text}`;
+}
+
+/** Узкий read-only список имён концептов из TypeDB (для drill-down графа знаний).
+ * Дублирует парсинг fetch-ответа из lib/graph.ts (extractFetch) — zero-dep локальная копия,
+ * чтобы не тянуть репозиторный метод в web-слой. При недоступности TypeDB бросает — вызывающая
+ * сторона оборачивает в safe() и деградирует. */
+async function readConceptNames(graphClient, limit = 24) {
+  const raw = await graphClient.read(
+    `match $c isa concept, has concept-name $n; limit ${limit}; fetch { "n": $n };`,
+  );
+  const out = [];
+  for (const ans of (raw && raw.answers) || []) {
+    const v = ans && ans.n;
+    if (typeof v === "string") out.push(v);
+    else if (v && typeof v === "object" && typeof v.value === "string") out.push(v.value);
+  }
+  return [...new Set(out)];
 }
 
 function degradedStats(message) {
@@ -582,6 +600,12 @@ async function handleChat(req, res, opts) {
   const threads = await readThreads(nabuHome);
   if (body.threadId) {
     thread = threads.find((t) => t.id === body.threadId) || null;
+    // Общий роль-разговор (conv-adjutant/…): если ещё не создан — создаём с каноническим id
+    // (та же сессия/история, что в Telegram), не генерируя случайный UUID.
+    if (!thread && isSharedConv(body.threadId)) {
+      thread = { id: body.threadId, title: message.slice(0, 60), claudeSessionId: null, role: body.threadId.slice(5), shared: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      await upsertThread(nabuHome, thread);
+    }
   }
   const now = new Date().toISOString();
   if (!thread) {
@@ -824,8 +848,15 @@ function createRequestHandler(opts) {
       // GET /api/threads
       if (method === "GET" && path === "/api/threads") {
         const threads = await readThreads(opts.nabuHome);
-        // Newest first for the sidebar.
-        threads.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+        // Синхронизация: общие роль-разговоры (адъютант+министры) всегда в списке — те же,
+        // что в Telegram. Если разговора ещё нет в файле — показываем виртуально (создастся при 1-м сообщении).
+        const byId = new Map(threads.map((t) => [t.id, t]));
+        for (const c of allSharedConvs()) {
+          if (!byId.has(c.id)) threads.push({ id: c.id, title: c.title, claudeSessionId: null, role: c.role, shared: true, createdAt: "2000-01-01", updatedAt: "2000-01-01" });
+          else byId.get(c.id).shared = true;
+        }
+        // Общие разговоры — сверху (закреплены), затем свободные веб-треды по свежести.
+        threads.sort((a, b) => (Number(!!b.shared) - Number(!!a.shared)) || String(b.updatedAt).localeCompare(String(a.updatedAt)));
         sendJson(res, 200, threads);
         return;
       }
@@ -865,37 +896,96 @@ function createRequestHandler(opts) {
       }
 
       // GET /api/stats/details?section=… — drill-down карточек дашборда (P1-9).
-      // Оркестрирует УЖЕ существующие lib-методы; ошибки → пустой список + note.
+      // Оркестрирует существующие lib-методы + узкие read-only pg/graph запросы.
+      // ИНВАРИАНТ приватности #2: vault НИКОГДА не попадает в выдачу (visibility <> 'vault').
+      // Ответ: { section, title(RU-fallback), note?, groups?:[{key,label,items}], items? }.
+      // groups даёт читаемые подсекции; UI локализует title/label по section+key (i18n).
       if (method === "GET" && path === "/api/stats/details") {
         const section = url.searchParams.get("section") || "";
+        // safe(): секции деградируют по-отдельности (сбой одной не роняет весь drill-down).
+        const safe = (p, fb) => Promise.resolve(p).then((x) => x).catch(() => fb);
         try {
           const deps = await getLibDeps(repoRoot);
-          let items = [];
-          let title = section;
           if (section === "memory") {
-            title = "Последние эпизоды";
-            items = (await deps.memory.listRecentEpisodes(15)).map((e) => ({
-              main: e.event,
-              sub: `${new Date(e.occurredAt).toISOString().slice(0, 16).replace("T", " ")}${e.emotion ? " · " + e.emotion : ""}`,
-            }));
+            const ns = await chatNs(deps);
+            const [facts, factCount, episodesRaw] = await Promise.all([
+              safe(deps.pg.query(
+                `select subject, predicate, object, confidence, created_at from semantic_facts
+                 where namespace=$1 and visibility <> 'vault' order by created_at desc limit 10`, [ns]), []),
+              safe(deps.pg.queryOne(
+                `select count(*) as n from semantic_facts where namespace=$1 and visibility <> 'vault'`, [ns]), null),
+              safe(deps.memory.listRecentEpisodes(20), []),
+            ]);
+            const episodes = episodesRaw.filter((e) => e.visibility !== "vault").slice(0, 12);
+            const groups = [
+              { key: "facts", label: "Факты", items: facts.map((f) => ({
+                main: `${f.subject} · ${f.predicate} · ${f.object}`,
+                sub: `${Math.round(Number(f.confidence) * 100)}% · ${String(f.created_at).slice(0, 10)}`,
+              })) },
+              { key: "episodes", label: "Недавние эпизоды", items: episodes.map((e) => ({
+                main: e.event,
+                sub: `${String(e.occurredAt).slice(0, 16).replace("T", " ")}${e.emotion ? " · " + e.emotion : ""}`,
+              })) },
+            ];
+            const note = factCount ? `Фактов всего (без vault): ${Number(factCount.n)}` : undefined;
+            sendJson(res, 200, { section, title: "Память", note, groups });
+          } else if (section === "graph") {
+            const groups = [];
+            let note;
+            const available = await safe(deps.graph.available(), false);
+            if (!available) {
+              note = "TypeDB недоступен — граф знаний офлайн.";
+            } else {
+              const concepts = await safe(readConceptNames(deps.graphClient, 24), []);
+              groups.push({ key: "concepts", label: "Концепты", items: concepts.map((n) => ({ main: n, sub: "" })) });
+              if (concepts.length) {
+                const first = concepts[0];
+                const nb = await safe(deps.graph.neighbors(first, 12), []);
+                groups.push({ key: "neighbors", label: `Связи: ${first}`, items: nb.map((n) => ({ main: n, sub: "" })) });
+              } else {
+                note = "В графе пока нет концептов.";
+              }
+            }
+            sendJson(res, 200, { section, title: "Граф знаний", note, groups });
           } else if (section === "domains") {
-            title = "Открытые задачи";
-            items = (await deps.domain.listTasks({})).filter((t) => !["done", "completed", "cancelled"].includes(t.status)).slice(0, 20)
-              .map((t) => ({ main: t.title, sub: `${t.status}${t.due_date ? " · до " + String(t.due_date).slice(0, 10) : ""}` }));
+            const [tasks, goalsAll, habits] = await Promise.all([
+              safe(deps.domain.listTasks({ open: true }), []),
+              safe(deps.domain.listGoals(), []),
+              safe(deps.domain.listHabits(true), []),
+            ]);
+            const goals = goalsAll.filter((g) => !["done", "achieved", "dropped"].includes(g.status)).slice(0, 12);
+            const groups = [
+              { key: "tasks", label: "Открытые задачи", items: tasks.slice(0, 15).map((t) => ({
+                main: t.title, sub: `${t.status}${t.due_date ? " · до " + String(t.due_date).slice(0, 10) : ""}` })) },
+              { key: "goals", label: "Активные цели", items: goals.map((g) => ({
+                main: g.text, sub: `${g.horizon ?? "—"} · ${g.status}` })) },
+              { key: "habits", label: "Привычки", items: habits.slice(0, 12).map((h) => ({
+                main: h.name, sub: h.target_frequency ? String(h.target_frequency) : (h.anchor ? String(h.anchor) : "") })) },
+            ];
+            sendJson(res, 200, { section, title: "Сферы жизни", groups });
           } else if (section === "council") {
-            title = "Советы, ждущие исхода";
-            items = (await deps.recommendation.listPendingFollowup(12)).map((r) => ({
-              main: r.recommendation.slice(0, 160), sub: `${r.domain ?? "—"} · ${String(r.createdAt).slice(0, 10)}`,
-            }));
+            const ns = await chatNs(deps);
+            const [delibs, followups] = await Promise.all([
+              safe(deps.pg.query(
+                `select question, status, created_at from deliberation
+                 where namespace=$1 order by created_at desc limit 12`, [ns]), []),
+              safe(deps.recommendation.listPendingFollowup(8), []),
+            ]);
+            const groups = [
+              { key: "deliberations", label: "Недавние совещания", items: delibs.map((d) => ({
+                main: d.question, sub: `${d.status} · ${String(d.created_at).slice(0, 10)}` })) },
+              { key: "followups", label: "Ждут исхода", items: followups.map((r) => ({
+                main: r.recommendation.slice(0, 160), sub: `${r.domain ?? "—"} · ${String(r.createdAt).slice(0, 10)}` })) },
+            ];
+            sendJson(res, 200, { section, title: "Совет", groups });
           } else if (section === "system") {
-            title = "Открытые предложения улучшений";
-            items = (await deps.improvement.listProposals({ status: "proposed", limit: 12 })).map((p) => ({
+            const items = (await deps.improvement.listProposals({ status: "proposed", limit: 12 })).map((p) => ({
               main: p.title, sub: `${p.category} · impact ${p.impact}`,
             }));
+            sendJson(res, 200, { section, title: "Открытые предложения улучшений", items });
           } else if (section === "trends") {
-            title = "Тренды метрик (прогноз 7 шагов)";
             const series = (await deps.analytics.listSeries()).slice(0, 4);
-            items = [];
+            let items = [];
             for (const s of series) {
               const f = await deps.analytics.forecast(s.id, 7);
               items.push({
@@ -904,13 +994,66 @@ function createRequestHandler(opts) {
               });
             }
             if (!series.length) items = [{ main: "Метрик пока нет", sub: "логируйте через nabu-domain.log_metric" }];
+            sendJson(res, 200, { section, title: "Тренды метрик (прогноз 7 шагов)", items });
           } else {
             sendJson(res, 400, { error: "unknown_section" });
-            return;
           }
-          sendJson(res, 200, { title, items });
         } catch (e) {
-          sendJson(res, 200, { title: section, items: [], note: `недоступно: ${String(e.message).slice(0, 160)}` });
+          sendJson(res, 200, { section, title: section, items: [], note: `недоступно: ${String(e.message).slice(0, 160)}` });
+        }
+        return;
+      }
+
+      // GET /api/about — «Обо мне»: тёплый дайджест того, что Nabu знает о пользователе.
+      // Только собственные данные пользователя в его локальном UI → private показывать можно.
+      // ИНВАРИАНТ #2: vault НИКОГДА не показывается (visibility <> 'vault' / фильтр по эпизодам).
+      if (method === "GET" && path === "/api/about") {
+        const safe = (p, fb) => Promise.resolve(p).then((x) => x).catch(() => fb);
+        try {
+          const deps = await getLibDeps(repoRoot);
+          const ns = await chatNs(deps);
+          const [factRows, episodesRaw, goalsAll, habits, character, factCount, epCount] = await Promise.all([
+            safe(deps.pg.query(
+              `select subject, predicate, object, confidence from semantic_facts
+               where namespace=$1 and visibility <> 'vault'
+               order by confidence desc, created_at desc limit 14`, [ns]), []),
+            safe(deps.memory.listRecentEpisodes(12), []),
+            safe(deps.domain.listGoals(), []),
+            safe(deps.domain.listHabits(true), []),
+            safe(deps.domain.getCharacter(), null),
+            safe(deps.pg.queryOne(`select count(*) as n from semantic_facts where namespace=$1 and visibility <> 'vault'`, [ns]), null),
+            safe(deps.pg.queryOne(`select count(*) as n from episodic_memory where namespace=$1 and visibility <> 'vault'`, [ns]), null),
+          ]);
+          const facts = factRows.map((f) => ({ subject: f.subject, predicate: f.predicate, object: f.object, confidence: Number(f.confidence) }));
+          const goals = goalsAll.filter((g) => !["done", "achieved", "dropped"].includes(g.status))
+            .slice(0, 12).map((g) => ({ text: g.text, horizon: g.horizon ?? null, status: g.status }));
+          const recentEpisodes = episodesRaw.filter((e) => e.visibility !== "vault").slice(0, 5)
+            .map((e) => ({ event: e.event, occurredAt: e.occurredAt, emotion: e.emotion ?? null }));
+          const habitsOut = habits.slice(0, 12).map((h) => ({ name: h.name, targetFrequency: h.target_frequency ?? null, anchor: h.anchor ?? null }));
+          // Персонаж: level в character_sheet НЕ хранится — не выдумываем (инвариант #4),
+          // показываем суммарный XP и сильнейшую грань (по *_xp столбцам).
+          let characterOut = null;
+          if (character) {
+            const attrs = ["intellect", "wisdom", "creativity", "discipline", "vitality", "resilience", "sociality", "wealth"];
+            let xpTotal = 0, topAttr = null, topVal = -1;
+            for (const a of attrs) {
+              const v = Number(character[`${a}_xp`] ?? 0);
+              xpTotal += v;
+              if (v > topVal) { topVal = v; topAttr = a; }
+            }
+            characterOut = { xpTotal, topAttr, topXp: topVal < 0 ? 0 : topVal };
+          }
+          sendJson(res, 200, {
+            facts, goals, habits: habitsOut, recentEpisodes, character: characterOut,
+            counts: {
+              factsTotal: factCount ? Number(factCount.n) : facts.length,
+              episodesTotal: epCount ? Number(epCount.n) : recentEpisodes.length,
+              goalsActive: goals.length,
+              habitsActive: habitsOut.length,
+            },
+          });
+        } catch (e) {
+          sendJson(res, 200, { degraded: true, note: String(e.message).slice(0, 160), facts: [], goals: [], habits: [], recentEpisodes: [], character: null, counts: {} });
         }
         return;
       }
@@ -1066,3 +1209,13 @@ if (await isMainModule()) {
     process.exit(1);
   }
 }
+
+// ── Экспорт для Telegram-бота (тот же процесс демона → общая threadsLock/deps) ──
+// Позволяет TG писать в те же chat_threads.json + chat_message + делить claude-сессии с web.
+export const _sync = {
+  readThreads,
+  upsertThread,
+  persistMessage,
+  loadMessages,
+  getLibDeps,
+};

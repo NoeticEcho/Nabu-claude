@@ -26,6 +26,13 @@ import { spawn, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { convId, isSharedConv } from "./conversations.mjs";
+// Общий стор web-чата (тот же процесс демона): единая история + сессии web↔TG (синхронизация).
+let _syncStore = null;
+async function sync() {
+  if (!_syncStore) { try { _syncStore = (await import("./chat-server.mjs"))._sync; } catch { _syncStore = false; } }
+  return _syncStore || null;
+}
 import { randomUUID } from "node:crypto";
 
 // Живые дочерние процессы (claude/whisper) на уровне модуля: run-хелперы объявлены вне
@@ -535,13 +542,27 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     const cfgFile = join(nabuHome, ".nabu", "mcp-config.json");
     const mcpConfigPath = existsSync(cfgFile) ? cfgFile : null;
     const streamer = makeStreamer(msg);
+
+    // Синхронизация web↔TG: adjutant/министры — ОБЩИЙ разговор (общий thread_id + сессия + история).
+    const st = await sync();
+    const cid = convId(role); // conv-adjutant / conv-<министр>
+    let sharedSession = null;
+    if (st) {
+      try {
+        const th = (await st.readThreads(nabuHome)).find((t) => t.id === cid);
+        sharedSession = th?.claudeSessionId || null;
+        await st.persistMessage(repoRoot, cid, "user", opts.originalText || prompt); // история — исходный текст
+      } catch { /* стор недоступен — работаем автономно */ }
+    }
+    const resumeSessionId = sharedSession || state.sessions[sessionKey];
+
     let result;
     try {
       result = await runClaude({
         claudeBin,
         repoRoot,
         text: prompt,
-        resumeSessionId: state.sessions[sessionKey],
+        resumeSessionId,
         mcpConfigPath,
         onText: (t) => streamer.schedule(t),
       });
@@ -549,6 +570,13 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
       stopTyping();
     }
     if (result.sessionId) { state.sessions[sessionKey] = result.sessionId; persist(); }
+    // Записать общую сессию + ответ в общую историю (виден в веб-чате как тот же разговор).
+    if (st) {
+      try {
+        await st.upsertThread(nabuHome, { id: cid, title: `${role === "adjutant" ? "🎖 Адъютант" : role} (Telegram+Web)`, claudeSessionId: result.sessionId || sharedSession || null, role, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+        if (result.text?.trim()) await st.persistMessage(repoRoot, cid, "assistant", result.text.trim(), result.costUsd ?? null);
+      } catch { /* best-effort */ }
+    }
     // Финальный рендер без курсора; sentAny=false → потоком ничего не ушло.
     const { sentAny, edits } = await streamer.finish(result.text);
     const answer = result.text.trim();
@@ -590,7 +618,7 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
         `Вопрос адресован министру «${role}». Подними субагента ${role} (или ответь в его роли и границах компетенции) и дай его ответ пользователю.\n\n` +
         text;
     }
-    await runAgent(msg, prompt, sessionKey, role, opts);
+    await runAgent(msg, prompt, sessionKey, role, { ...opts, originalText: text });
   }
 
   // ── Голос: локальная транскрипция (whisper) → та же маршрутизация, что и для текста ──

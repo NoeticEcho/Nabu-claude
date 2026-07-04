@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { buildDepsOrExit, installGracefulShutdown, ok, degraded, fail, wrap, loadCalendars , resolveLiveConfig } from "@nabu/lib";
+import { buildDepsOrExit, installGracefulShutdown, ok, degraded, fail, wrap, loadCalendars , resolveLiveConfig, QUALITATIVE_CAP } from "@nabu/lib";
 
 const deps = buildDepsOrExit("nabu-domain");
 const server = new McpServer({ name: "nabu-domain", version: "1.6.0" });
@@ -46,15 +46,30 @@ server.registerTool("add_task", {
 }));
 
 server.registerTool("update_task_status", {
-  title: "Статус задачи", description: "Обновить статус задачи (write). done/completed проставляет completed_at.",
+  title: "Статус задачи", description: "Обновить статус задачи (write). done/completed проставляет completed_at и детерминированно начисляет XP (discipline по приоритету + бонус за срок). Возвращает начисленный XP.",
   inputSchema: { taskId: z.string().uuid(), status: z.string().min(1) },
-}, ({ taskId, status }) => wrap(async () => { const okk = await deps.domain.updateTaskStatus(taskId, status); return okk ? ok("Статус задачи обновлён", { taskId, status }) : fail("Задача не найдена", { taskId }); }));
+}, ({ taskId, status }) => wrap(async () => {
+  const r = await deps.domain.updateTaskStatus(taskId, status);
+  if (!r.updated) return fail("Задача не найдена", { taskId });
+  const gained = r.xp.reduce((n, a) => n + a.amount, 0);
+  return ok(gained > 0 ? `Статус обновлён (+${gained} XP)` : "Статус задачи обновлён", { taskId, status, xp: r.xp });
+}));
 
 // ── Цели ──
 server.registerTool("list_goals", {
   title: "Цели", description: "Цели пользователя (SMART), опц. по статусу.",
   inputSchema: { status: z.string().optional() }, annotations: { readOnlyHint: true },
 }, ({ status }) => wrap(async () => { const r = await deps.domain.listGoals(status); return ok(`Целей: ${r.length}`, { goals: r }); }));
+
+server.registerTool("update_goal_status", {
+  title: "Статус цели", description: "Обновить статус цели (write). Достижение (completed|done|achieved) начисляет +50 XP в атрибут домена цели (domain; по умолчанию growth→resilience). Бросить цель — без штрафа. Возвращает начисленный XP.",
+  inputSchema: { goalId: z.string().uuid(), status: z.string().min(1), domain: z.string().optional() },
+}, ({ goalId, status, domain }) => wrap(async () => {
+  const r = await deps.domain.updateGoalStatus(goalId, status, { domain });
+  if (!r.updated) return fail("Цель не найдена", { goalId });
+  const gained = r.xp.reduce((n, a) => n + a.amount, 0);
+  return ok(gained > 0 ? `Цель обновлена (+${gained} XP)` : "Статус цели обновлён", { goalId, status, xp: r.xp });
+}));
 
 // ── Привычки ──
 server.registerTool("list_habits", {
@@ -63,9 +78,14 @@ server.registerTool("list_habits", {
 }, ({ activeOnly }) => wrap(async () => { const r = await deps.domain.listHabits(activeOnly); return ok(`Привычек: ${r.length}`, { habits: r }); }));
 
 server.registerTool("log_habit", {
-  title: "Отметить привычку", description: "Записать выполнение привычки за день (write). planned-skip не сбивает серию (streak-keeper).",
-  inputSchema: { habitId: z.string().uuid(), status: z.enum(["done", "skipped", "planned-skip"]), date: z.string().optional() },
-}, ({ habitId, status, date }) => wrap(async () => { const r = await deps.domain.logHabit(habitId, status, date); return ok("Привычка отмечена", r); }));
+  title: "Отметить привычку", description: "Записать выполнение привычки за день (write). done → +XP (discipline + атрибут домена); missed → мягкий штраф −5 discipline (пол 0); planned-skip/skipped не сбивают серию и не наказываются (streak-keeper). Начисление за день — один раз. Возвращает начисленный XP.",
+  inputSchema: { habitId: z.string().uuid(), status: z.enum(["done", "missed", "skipped", "planned-skip"]), date: z.string().optional() },
+}, ({ habitId, status, date }) => wrap(async () => {
+  const r = await deps.domain.logHabit(habitId, status, date);
+  const gained = r.xp.reduce((n, a) => n + a.amount, 0);
+  const msg = gained > 0 ? `Привычка отмечена (+${gained} XP)` : gained < 0 ? `Привычка отмечена (${gained} XP)` : "Привычка отмечена";
+  return ok(msg, r);
+}));
 
 // ── Квесты ──
 server.registerTool("list_quests", {
@@ -75,9 +95,9 @@ server.registerTool("list_quests", {
 
 // ── Персонаж / RPG ──
 server.registerTool("get_character", {
-  title: "Лист персонажа", description: "RPG-лист: уровень, классы, XP по 8 атрибутам, tuppi.",
+  title: "Лист персонажа", description: "Богатый RPG-лист: общий уровень + xp-до-следующего, и по каждому из 8 атрибутов — xp, уровень, xp-до-следующего. Формулы: атрибут floor(sqrt(xp/50)), общий floor(sqrt(total/100)).",
   inputSchema: {}, annotations: { readOnlyHint: true },
-}, () => wrap(async () => { const c = await deps.domain.getCharacter(); return ok("Лист персонажа", { character: c }); }));
+}, () => wrap(async () => { const c = await deps.domain.characterSheet(); return ok(`Персонаж: ур. ${c.level} (всего ${c.total} XP)`, { character: c }); }));
 
 server.registerTool("log_metric", {
   title: "Записать метрику жизни",
@@ -95,13 +115,14 @@ server.registerTool("log_metric", {
 }));
 
 server.registerTool("award_xp", {
-  title: "Начислить XP", description: "Начислить XP по атрибуту (intellect|wisdom|creativity|discipline|vitality|resilience|sociality|wealth) с обязательной причиной. Каждый XP объясним. Write.",
+  title: "Начислить XP (качественное)",
+  description: `Ручное качественное начисление XP по атрибуту с обязательной причиной — за то, что не ловится детерминированно (инсайт/рефлексия→wisdom, творчество→creativity, живая связь→sociality, преодоление→resilience). Детерминированное (задачи/привычки/цели) начисляется автоматически — здесь НЕ дублировать. Рубрика величин (потолок ${QUALITATIVE_CAP} против инфляции): мелкое 5-10, заметное 10-15, крупное 15-25. Начисляй скупо и честно. Каждый XP объясним. Write.`,
   inputSchema: {
     attribute: z.enum(["intellect", "wisdom", "creativity", "discipline", "vitality", "resilience", "sociality", "wealth"]),
-    amount: z.number().int().min(1).max(1000),
+    amount: z.number().int().min(1).max(QUALITATIVE_CAP),
     reason: z.string().min(1),
   },
-}, ({ attribute, amount, reason }) => wrap(async () => { const r = await deps.domain.awardXp(attribute, amount, reason); return ok(`+${amount} XP (${attribute})`, r); }));
+}, ({ attribute, amount, reason }) => wrap(async () => { const r = await deps.domain.awardXp(attribute, amount, reason, "agent"); return ok(`+${amount} XP (${attribute})`, r); }));
 
 // ── Календарь (ICS без OAuth) ──
 server.registerTool("list_calendar", {

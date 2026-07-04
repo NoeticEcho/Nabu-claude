@@ -84,6 +84,7 @@
     flex: 0 0 auto;
   }
   .brand .sub { color: var(--text-faint); font-weight: 500; font-size: 12px; }
+  .thread.shared { border-left: 2px solid var(--accent); }
   #newThreadBtn {
     margin-top: 12px;
     width: 100%;
@@ -339,7 +340,7 @@
   .hint { max-width: 860px; margin: 6px auto 0; color: var(--text-faint); font-size: 11.5px; text-align: center; }
 
   /* ---------------- Stats ---------------- */
-  #statsBtn {
+  #statsBtn, #aboutBtn {
     margin-top: 8px;
     width: 100%;
     border: 1px solid var(--border);
@@ -353,13 +354,21 @@
     display: flex; align-items: center; gap: 8px; justify-content: center;
     transition: background .15s, border-color .15s, color .15s;
   }
-  #statsBtn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
-  #statsBtn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+  #statsBtn:hover, #aboutBtn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+  #statsBtn.active, #aboutBtn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
 
-  #statsView { display: none; flex: 1; overflow-y: auto; min-height: 0; }
-  #main.stats-mode #scroll { display: none; }
-  #main.stats-mode .composer-wrap { display: none; }
+  #statsView, #aboutView { display: none; flex: 1; overflow-y: auto; min-height: 0; }
+  #main.stats-mode #scroll, #main.about-mode #scroll { display: none; }
+  #main.stats-mode .composer-wrap, #main.about-mode .composer-wrap { display: none; }
   #main.stats-mode #statsView { display: block; }
+  #main.about-mode #aboutView { display: block; }
+
+  /* «Обо мне» — тёплый дайджест */
+  .about-intro { color: var(--text-dim); font-size: 14px; margin: 2px 0 16px; line-height: 1.5; }
+  .about-empty { color: var(--text-faint); font-size: 14px; padding: 20px 4px; }
+  .about-counts { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 4px; color: var(--text-faint); font-size: 12.5px; }
+  .about-card .details-row:first-of-type { border-top: none; }
+  .about-card .card-na { color: var(--text-faint); font-size: 13px; }
 
   .stats-inner { max-width: 1000px; margin: 0 auto; padding: 20px 18px 44px; }
   .stats-head {
@@ -488,6 +497,7 @@
       <button id="newThreadBtn">＋ Новый разговор</button>
       <select id="profileSel" style="display:none; margin-top:8px; width:100%; background:var(--bg-elev-2); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:6px 8px; font:inherit;" title="Профиль: применяется к НОВЫМ разговорам и к статистике"></select>
       <button id="statsBtn">📊 Статистика</button>
+      <button id="aboutBtn">🪞 Обо мне</button>
     </div>
     <div id="threadList"></div>
   </aside>
@@ -516,6 +526,16 @@
         <div id="statsDetails" style="display:none"></div>
       </div>
     </div>
+    <div id="aboutView">
+      <div class="stats-inner">
+        <div class="stats-head">
+          <h2 id="aboutTitle">Что я о тебе знаю</h2>
+          <button class="stats-refresh" id="aboutRefresh" title="Обновить" aria-label="Обновить">⟳</button>
+        </div>
+        <div class="about-intro" id="aboutIntro"></div>
+        <div id="aboutBody"></div>
+      </div>
+    </div>
     <div class="composer-wrap">
       <div class="composer">
         <textarea id="input" rows="1" placeholder="Спросите Совет…" autocomplete="off"></textarea>
@@ -536,6 +556,7 @@
     messages: [],   // [{role:'user'|'assistant', text, tools?, error?}]
     streaming: false,
     statsVisible: false,
+    aboutVisible: false,
   };
 
   var el = {
@@ -552,6 +573,11 @@
     main: document.getElementById("main"),
     statsBtn: document.getElementById("statsBtn"),
     statsRefresh: document.getElementById("statsRefresh"),
+    aboutBtn: document.getElementById("aboutBtn"),
+    aboutRefresh: document.getElementById("aboutRefresh"),
+    aboutBody: document.getElementById("aboutBody"),
+    aboutIntro: document.getElementById("aboutIntro"),
+    aboutTitle: document.getElementById("aboutTitle"),
     profileSel: document.getElementById("profileSel"),
     statsGenAt: document.getElementById("statsGenAt"),
     statsWarn: document.getElementById("statsWarn"),
@@ -582,7 +608,7 @@
       input_placeholder: "Спросите Совет…",
       send: "Отправить",
       hint: "Enter — отправить · Shift+Enter — новая строка",
-      no_threads: "Пока нет разговоров",
+      web_threads: "Веб-разговоры", synced_hint: "Синхронизирован с Telegram", no_threads: "Пока нет разговоров",
       untitled: "Без названия",
       delete: "Удалить",
       welcome_title: "Совет к вашим услугам",
@@ -607,6 +633,24 @@
       load_failed: "Не удалось загрузить.",
       na: "н/д",
       details_open: "Открыть детали",
+      det_memory: "Память", det_graph: "Граф знаний", det_domains: "Сферы жизни", det_council: "Совет",
+      grp_facts: "Факты", grp_episodes: "Недавние эпизоды", grp_tasks: "Открытые задачи",
+      grp_goals: "Активные цели", grp_habits: "Привычки", grp_concepts: "Концепты",
+      grp_neighbors: "Связи", grp_deliberations: "Недавние совещания", grp_followups: "Ждут исхода",
+      about_btn: "🪞 Обо мне",
+      about_title: "Что я о тебе знаю",
+      about_intro: "Вот что я успел узнать о тебе из наших разговоров и заметок. Хранилище (vault) сюда не попадает.",
+      about_empty: "Пока я почти ничего о тебе не знаю. Расскажи что-нибудь — и я запомню.",
+      about_facts: "Факты о тебе",
+      about_goals: "Активные цели",
+      about_habits: "Привычки",
+      about_memory: "Недавняя память",
+      about_character: "Твой персонаж",
+      about_strongest: "сильнейшая грань",
+      about_cnt_facts: "фактов",
+      about_cnt_episodes: "эпизодов",
+      about_cnt_goals: "целей",
+      about_cnt_habits: "привычек",
       approvals_title: "Ожидают подтверждения",
       approvals_none: "Нет ожидающих одобрений.",
       agent: "агент: ",
@@ -676,7 +720,7 @@
         { label: "📊 Статистика", stats: true },
       ],
     },
-    en: {
+    en: { web_threads: "Web chats", synced_hint: "Synced with Telegram",
       brand_sub: "AI Council",
       new_thread: "＋ New chat",
       stats_btn: "📊 Statistics",
@@ -714,6 +758,24 @@
       load_failed: "Failed to load.",
       na: "n/a",
       details_open: "Open details",
+      det_memory: "Memory", det_graph: "Knowledge graph", det_domains: "Life domains", det_council: "Council",
+      grp_facts: "Facts", grp_episodes: "Recent episodes", grp_tasks: "Open tasks",
+      grp_goals: "Active goals", grp_habits: "Habits", grp_concepts: "Concepts",
+      grp_neighbors: "Neighbors", grp_deliberations: "Recent deliberations", grp_followups: "Awaiting outcome",
+      about_btn: "🪞 About me",
+      about_title: "What I know about you",
+      about_intro: "Here's what I've picked up about you from our chats and notes. Your vault is never surfaced here.",
+      about_empty: "I hardly know you yet. Tell me something — and I'll remember.",
+      about_facts: "Facts about you",
+      about_goals: "Active goals",
+      about_habits: "Habits",
+      about_memory: "Recent memory",
+      about_character: "Your character",
+      about_strongest: "strongest facet",
+      about_cnt_facts: "facts",
+      about_cnt_episodes: "episodes",
+      about_cnt_goals: "goals",
+      about_cnt_habits: "habits",
       approvals_title: "Pending approvals",
       approvals_none: "No pending approvals.",
       agent: "agent: ",
@@ -801,6 +863,9 @@
     var brandSub = q(".brand .sub"); if (brandSub) brandSub.textContent = t("brand_sub");
     el.newBtn.textContent = t("new_thread");
     el.statsBtn.textContent = t("stats_btn");
+    if (el.aboutBtn) el.aboutBtn.textContent = t("about_btn");
+    if (el.aboutTitle) el.aboutTitle.textContent = t("about_title");
+    if (el.aboutRefresh) { el.aboutRefresh.title = t("refresh"); el.aboutRefresh.setAttribute("aria-label", t("refresh")); }
     el.menuBtn.setAttribute("aria-label", t("menu"));
     var titleAccent = q(".topbar .title .accent"); if (titleAccent) titleAccent.textContent = t("council");
     el.statusDot.title = t("status");
@@ -823,6 +888,7 @@
     renderThreads();
     renderMessages();
     if (state.statsVisible && stats.data) renderStats(stats.data);
+    if (state.aboutVisible && about.data) renderAbout(about.data);
   }
 
   // ---------- Utilities ----------
@@ -900,25 +966,35 @@
       el.threadList.appendChild(hint);
       return;
     }
+    var anyShared = state.threads.some(function (t2) { return t2.shared; });
+    var sepDrawn = false;
     state.threads.forEach(function (th) {
+      // Разделитель между общими (Telegram-синхронными) разговорами и свободными веб-тредами.
+      if (anyShared && !th.shared && !sepDrawn) {
+        var sep = document.createElement("div");
+        sep.className = "empty-hint";
+        sep.style.padding = "8px 12px 4px";
+        sep.textContent = t("web_threads");
+        el.threadList.appendChild(sep);
+        sepDrawn = true;
+      }
       var row = document.createElement("div");
-      row.className = "thread" + (th.id === state.activeId ? " active" : "");
-      row.title = th.title || t("untitled");
+      row.className = "thread" + (th.id === state.activeId ? " active" : "") + (th.shared ? " shared" : "");
+      row.title = (th.shared ? t("synced_hint") + " · " : "") + (th.title || t("untitled"));
 
       var title = document.createElement("div");
       title.className = "t-title";
-      title.textContent = th.title || t("untitled");
+      title.textContent = (th.shared ? "📱 " : "") + (th.title || t("untitled"));
       row.appendChild(title);
 
-      var del = document.createElement("button");
-      del.className = "t-del";
-      del.textContent = "✕";
-      del.title = t("delete");
-      del.addEventListener("click", function (e) {
-        e.stopPropagation();
-        deleteThread(th.id);
-      });
-      row.appendChild(del);
+      if (!th.shared) {
+        var del = document.createElement("button");
+        del.className = "t-del";
+        del.textContent = "✕";
+        del.title = t("delete");
+        del.addEventListener("click", function (e) { e.stopPropagation(); deleteThread(th.id); });
+        row.appendChild(del);
+      }
 
       row.addEventListener("click", function () { selectThread(th.id); });
       el.threadList.appendChild(row);
@@ -1270,6 +1346,7 @@
   }
 
   function showStats() {
+    hideAbout(); // статистика и «Обо мне» — взаимоисключающие режимы main
     state.statsVisible = true;
     el.main.classList.add("stats-mode");
     el.statsBtn.classList.add("active");

@@ -24,6 +24,25 @@ export { PersonalityRepository } from "./repositories/personality.js";
 export { renderTraits, renderSalient, renderPersonalityBlock, applyGuardrails, ETHICAL_INVARIANTS } from "./personality.js";
 export type { Traits } from "./personality.js";
 export { DomainRepository } from "./repositories/domain.js";
+export type { XpAward } from "./repositories/domain.js";
+export {
+  XP_ATTRS,
+  attrLevel,
+  overallLevel,
+  xpToNext,
+  domainToAttribute,
+  taskXp,
+  characterSummary,
+  ATTR_DIVISOR,
+  OVERALL_DIVISOR,
+  ONTIME_BONUS,
+  HABIT_DISCIPLINE_XP,
+  HABIT_DOMAIN_XP,
+  GOAL_XP,
+  HABIT_MISS_PENALTY,
+  QUALITATIVE_CAP,
+} from "./rpg.js";
+export type { XpAttr, LevelFormula, AttrSummary, CharacterSummary, CharacterSheetRow } from "./rpg.js";
 export { NotesRepository } from "./repositories/notes.js";
 export type { Note } from "./repositories/notes.js";
 export { SystemTaskRepository } from "./repositories/system-task.js";
