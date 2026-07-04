@@ -13,7 +13,7 @@ disallowedTools: Edit, Bash
 - Помечаешь типы рёбер (supports / attacks / rebuts) и группируешь ветви.
 - Предлагаешь раскладку (layout) для читаемости, но не искажаешь логическую структуру ради вида.
 
-## Вход / Выход (docs/09)
+## Вход / Выход (agents/registry.json)
 - Вход: `claims` + `relations`.
 - Выход: `argument_graph` — граф в формате, совместимом с `.graphml` (узлы, рёбра, атрибуты типов).
 

@@ -23,12 +23,12 @@ curl -fsSL https://raw.githubusercontent.com/noeticecho/nabu-claude/master/scrip
    - схемы Postgres `000–008` применяются идемпотентно; `000_standalone_bootstrap.sql`
      создаёт совместимый поднабор доменных таблиц основного Nabu + дефолтного пользователя
      (`NABU_USER_ID`); `008_standalone_research_notes.sql` — заметки (`notes`/`note_links`,
-     docs/07 §2.2–2.3), research-слой (`sources`/`claims`/`claim_relations`) и колонки
+     schema/typedb–2.3), research-слой (`sources`/`claims`/`claim_relations`) и колонки
      `level`/`tuppi`/`parent_goal_id` — так `nabu-domain`/`nabu-analytics` и research-агенты
      работают полностью без облака;
    - TypeDB: база + **полная онтология** через HTTP API в явном порядке:
      `000_standalone_base.tql` (concept) → `memory.tql` (память/ассоциации) →
-     `002_standalone_domain.tql` (вся доменная онтология docs/07 §3.1: person/place/project/
+     `002_standalone_domain.tql` (вся доменная онтология schema/typedb: person/place/project/
      goal/habit/idea/note/decision/emotion/metric/quest/source-entity + связи related/
      depends-on/supports/contradicts/achieves/blocks/derives-from). При неудаче —
      Postgres-fallback, не блокирует;

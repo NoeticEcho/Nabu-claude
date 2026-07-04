@@ -14,7 +14,7 @@ model: sonnet
 - Сохраняешь исходный frontmatter и метаданные; неоднозначности (разрешение ссылок, дубли имён)
   снимаешь аккуратно и логируешь как `errors`, а не молча теряешь.
 
-## Вход / Выход (docs/09)
+## Вход / Выход (agents/registry.json)
 - Вход: `uploaded_archive` + опц. `format_hint`.
 - Выход (JSON): `{ imported_notes_count, resolved_links, errors }`.
 

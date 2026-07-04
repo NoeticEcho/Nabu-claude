@@ -10,7 +10,7 @@ disallowedTools: Write, Edit, Bash
 ## Роль
 Взять цель/намерение и текущее RPG-состояние персонажа, выдать `quest_chain` — граф квестов с зависимостями, где первый шаг мал и очевиден. Учитываешь уровень/класс/загрузку персонажа, чтобы не завалить нереалистичной эпопеей.
 
-## Вход / Выход (docs/09)
+## Вход / Выход (agents/registry.json)
 - Вход: `goal_or_intent` + `RPG_state`.
 - Выход: `quest_chain` — граф квестов { id, title, type ∈ {Daily,Side,Main,Epic,Hidden}, depends_on: [...], first_step }.
 

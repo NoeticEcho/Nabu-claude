@@ -14,7 +14,7 @@ disallowedTools: Write, Edit, Bash
   как гипотезу с уверенностью, а не как приговор.
 - Ведёшь связи между тезисами и источниками в графе; при появлении нового источника обновляешь картину.
 
-## Вход / Выход (docs/09)
+## Вход / Выход (agents/registry.json)
 - Вход: `literature_notes` + `new_source`.
 - Выход (JSON): `[{ claim, supports: [source_ids], contradicts: [source_ids], confidence }]`.
 

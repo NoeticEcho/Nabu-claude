@@ -22,7 +22,7 @@ disallowedTools: Write, Edit, Bash
   сохранить (write/external) — только через `nabu-memory.request_approval` + `log_action`.
 
 ## Модель и приватность
-- Класс: **Sonnet** (docs/09 §2.3, основная рабочая).
+- Класс: **Sonnet** (agents/registry.json, основная рабочая).
 - Приватность: не тянуть в облако контент, помеченный `private`/`vault`; такую обработку —
   локально (Ollama/Qwen). Нет visibility → считать `private` для чувствительного.
 

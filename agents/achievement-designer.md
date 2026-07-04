@@ -13,7 +13,7 @@ disallowedTools: Write, Edit, Bash
 - Формулируешь достижение с явным, проверяемым критерием и текущим прогрессом к нему.
 - Пишешь короткий уважительный `narrative` — без манипуляции и без искусственного дефицита.
 
-## Вход / Выход (docs/09)
+## Вход / Выход (agents/registry.json)
 - Вход: `user_history` + `active_quests` + `character_state`.
 - Выход (JSON): `[{ achievement_name, criteria, current_progress, narrative }]`.
 

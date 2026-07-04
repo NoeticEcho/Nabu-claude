@@ -8,7 +8,7 @@ argument-hint: [target: agent-name | council | prompts | all]
 Запусти оценку и самообучение (фичи 12 + 8) для `$ARGUMENTS` (или `all`):
 
 1. **Измерение** — субагент `effectiveness-evaluator`: прогон `evals/*.jsonl` (`node evals/runner.mjs`),
-   судейство выходов по рубрикам docs/09 §2.4, учёт исходов/фидбэка → `nabu-improve.record_effectiveness`.
+   судейство выходов по рубрикам agents/registry.json, учёт исходов/фидбэка → `nabu-improve.record_effectiveness`.
 2. **Обучение** — субагент `nabu-learner`: по метрикам аккуратно подстраивает личность агентов с
    `evolves:true` (`evolve_personality`, шаг ≤±1, пороги honesty/kindness, лог), а уточнения промптов/
    скиллов оформляет как `improvement_proposal`; успешные приёмы → `add_procedure`.

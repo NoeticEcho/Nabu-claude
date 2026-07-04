@@ -1,6 +1,6 @@
 # Интеграция: 44 агента Nabu + Совет Nabu-claude
 
-Nabu-claude переиспользует **все 44 агента** основного каталога Nabu (`docs/09`) и
+Nabu-claude переиспользует **все 44 агента** основного каталога Nabu (`agents/registry.json`) и
 надстраивает над ними **Совет** доменных экспертов жизни. Это не два конкурирующих набора,
 а два слоя одной системы. Полный список — в `agents/registry.json`.
 
@@ -10,7 +10,7 @@ Nabu-claude переиспользует **все 44 агента** основн
 Это «как обрабатываются данные»: приём ввода → понимание → связывание → память → синтез →
 терапия → привычки/проекты/метрики → исследования/геймификация/импорт. Эти агенты работают
 с данными пользователя и наполняют память (граф, эмбеддинги, эпизоды). Слои и состав —
-точно как в `docs/09`.
+точно как в `agents/registry.json`.
 
 ### Слой 2 — Совет жизни (9 министров + функциональные)
 Это «как принимаются решения по сферам жизни»: доменные министры (health, finance, …) дают
@@ -63,14 +63,14 @@ Nabu-claude переиспользует **все 44 агента** основн
 
 ## Материализация в Claude Code (v0.5.0)
 
-Все агенты docs/09 + Совет **материализованы** (поле `impl` в `agents/registry.json`):
+Все агенты agents/registry.json + Совет **материализованы** (поле `impl` в `agents/registry.json`):
 
 - **Субагенты Claude Code** (`agents/<slug>.md`, 68 шт.) — всё, кроме адъютанта: 44 конвейерных
   агента (кроме #01), 9 министров, `council`/`decision-maker`/`critic`/`agent-creator`,
   память (`retriever`/`memory-keeper`/`entity-extractor`/`librarian`/`reflector`/`digest`/
   `voice-transcriber`), созидатели (`builder`+`entrepreneurship`/`software-dev`/`web-dev`/`copywriting`).
   Frontmatter `name`/`description`/`model` + системный промпт; изолированный контекст, параллельный
-  Task-диспатч, помодельная маршрутизация (Haiku/Sonnet/Opus по `docs/09 §2.3`). Авто-обнаружение
+  Task-диспатч, помодельная маршрутизация (Haiku/Sonnet/Opus по `agents/registry.json``). Авто-обнаружение
   из `agents/` (рекурсивный скан `.md`; `agents/*.json` — профили личности, не пересекаются).
 - **Единственный skill** — `nabu-orchestrator` (адъютант = Conductor #01). Работает в ОСНОВНОМ
   контексте: с ним общается пользователь, он триажит и диспатчит субагентов.
@@ -123,7 +123,7 @@ financial/destructive) — через `request_approval` + `log_action` (governa
 - **Приватность по умолчанию**: episodic/semantic пишутся `private` по умолчанию; чувствительные
   домены (health/mind/finance/relationships) — `private` (config `high_risk_domains_private`).
 - **Кризис-ресурсы**: `config/crisis_resources.json` — навигаторы + региональные линии с флагом
-  `VERIFY_BEFORE_PRODUCTION` (docs/28 §10: верификация человеком/консультантом перед запуском).
+  `VERIFY_BEFORE_PRODUCTION` (SAFETY.md: верификация человеком/консультантом перед запуском).
 - **Узкие tools субагентов (least-privilege, сделано)**: через `disallowedTools` (сохраняет MCP + Read).
   59 reasoning/memory-агентов — `disallowedTools: Write, Edit, Bash` (не пишут файлы/шелл; персистенция —
   через MCP; md-выход в workspace пишет адъютант). doc-writers (`document-synthesizer`, `argument-mapper`) —
@@ -135,7 +135,7 @@ financial/destructive) — через `request_approval` + `log_action` (governa
 
 ## Безопасность
 
-Терапевтические агенты Nabu (#24–28) сохраняют все ограничения `docs/09`/`docs/28`:
+Терапевтические агенты Nabu (#24–28) сохраняют все ограничения `agents/registry.json`/`SAFETY.md`:
 private/Ollama, disclaimer, human review промптов, eval с психологом. Доменные министры
 high-risk (health, mind, finance, relationships) наследуют границы компетенции из `SAFETY.md`.
 Critic (#03) проверяет всё перед выдачей.

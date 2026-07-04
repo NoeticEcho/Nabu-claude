@@ -14,7 +14,7 @@ disallowedTools: Write, Edit, Bash
 - Формируешь короткое, тёплое `narrative_message` (это делает Haiku) — без давления и без создания
   тревоги/зависимости.
 
-## Вход / Выход (docs/09)
+## Вход / Выход (agents/registry.json)
 - Вход: `activity_event`.
 - Выход (JSON): `{ xp_delta_per_attr: {...}, level_up?, new_class?, narrative_message? }`.
 

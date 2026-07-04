@@ -1,11 +1,11 @@
 {
   "version": "0.8.0",
-  "description": "Полный реестр агентов Nabu-claude: 44 агента основного каталога Nabu (docs/09) по слоям + Совет из 9 доменных министров + функциональные агенты коллегиальности + оркестратор builder + материализованные специалисты-созидатели под work (entrepreneurship, software-dev, web-dev, copywriting). Дубли сведены (см. _notes).",
+  "description": "Полный реестр агентов Nabu-claude: 44 агента основного каталога Nabu (agents/registry.json) по слоям + Совет из 9 доменных министров + функциональные агенты коллегиальности + оркестратор builder + материализованные специалисты-созидатели под work (entrepreneurship, software-dev, web-dev, copywriting). Дубли сведены (см. _notes).",
   "_notes": {
     "shared_roles": "Роли Nabu и Nabu-claude совпадают и НЕ дублируются: Critic (Nabu #03) = функциональный critic; Librarian (#16), Context Retriever (#17) = слой памяти; Entity Extractor (#08) = индексация; Transcriber (#06) = voice-transcriber. Адъютант надстроен над Conductor (#01).",
     "brain": "В Nabu-claude рассуждение выполняет Claude Code (Max), а не отдельные Mastra-вызовы. 44 агента здесь — роли/skills, переиспользующие ту же логику, не сетевые вызовы.",
     "expansion": "Узкие специалисты министерств порождаются agent-creator'ом по требованию, не заранее.",
-    "materialization": "Полное соответствие docs/09 + Совет как СУБАГЕНТЫ Claude Code (agents/*.md). Единственный skill — nabu-orchestrator (адъютант/Conductor #01, основной контекст). Все прочие (44 конвейерных + 9 министров + council/decision-maker/critic/agent-creator + созидатели + память) — субагенты. impl: skill:<slug> | agent:<slug>. Коллегиальное решение: адъютант открывает deliberation, параллельно диспатчит министров (add_position), council-субагент синтезирует (get_positions/record_synthesis), decision-maker/critic — субагенты. Тяжёлая аналитика — TypeScript MCP nabu-analytics.",
+    "materialization": "Полное соответствие agents/registry.json + Совет как СУБАГЕНТЫ Claude Code (agents/*.md). Единственный skill — nabu-orchestrator (адъютант/Conductor #01, основной контекст). Все прочие (44 конвейерных + 9 министров + council/decision-maker/critic/agent-creator + созидатели + память) — субагенты. impl: skill:<slug> | agent:<slug>. Коллегиальное решение: адъютант открывает deliberation, параллельно диспатчит министров (add_position), council-субагент синтезирует (get_positions/record_synthesis), decision-maker/critic — субагенты. Тяжёлая аналитика — TypeScript MCP nabu-analytics.",
     "servers": "7 MCP-серверов: nabu-memory (память+личность render_personality+governance+purge), nabu-pipeline (индексация), nabu-council (буфер совещаний), nabu-voice (Whisper опц.), nabu-analytics (прогноз/корреляция/аномалии/агрегаты — TypeScript), nabu-domain (projects/tasks/goals/habits/quests/character/xp — узкие tools). Доменные/аналитические таблицы скоупятся по NABU_USER_ID.",
     "personality": "Черты agents/*.json → директивы (lib/personality.ts, PERSONALITY_RENDERING.md); засев в agent_personality (seed_personality); tool render_personality; запечены salient-директивы в профильных субагентов; эволюция через agent_personality_log (evolves=true).",
     "self_improvement": "Фаза C: цикл само-улучшения. Данные — MCP nabu-improve (agent_effectiveness, improvement_proposal). Предлагают, не внедряют; critic ревьюит; пользователь решает (update_proposal). Эволюция личности — только evolves=true, ±1, пороги honesty/kindness, лог. Scheduled через /nabu-cron.",
@@ -168,7 +168,7 @@
         "name": "CBT Agent",
         "role": "КПТ",
         "risk": "high",
-        "constraints": "private/Ollama, disclaimer, human review, docs/28, SAFETY.md",
+        "constraints": "private/Ollama, disclaimer, human review, SAFETY.md, SAFETY.md",
         "impl": "agent:cbt"
       },
       {
@@ -200,7 +200,7 @@
         "name": "Coach Agent",
         "role": "Коучинг",
         "risk": "medium",
-        "constraints": "docs/28",
+        "constraints": "SAFETY.md",
         "impl": "agent:coach"
       }
     ],

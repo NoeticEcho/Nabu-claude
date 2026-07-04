@@ -1,7 +1,7 @@
 {
   "name": "nabu-claude",
   "version": "1.0.2",
-  "description": "Nabu-claude — ИИ-Совет для всех сфер жизни внутри Claude Code. Полный каталог docs/09 (44 агента) + 9 министров + функциональные + созидатели — субагенты Claude Code; адъютант-оркестратор — skill. Рабочий workspace ~/nabu (горнило→md-выход, git), hooks, проактивные задачи по расписанию, само-улучшение. Общая БД с основным Nabu.",
+  "description": "Nabu-claude — личный ИИ-Совет для всех сфер жизни внутри Claude Code: 73 агента (9 министров, специалисты, конвейер) как субагенты; адъютант-оркестратор — skill. Локальный standalone-стек (docker, zero-config), workspace ~/nabu, проактивные задачи, самоулучшение (Commons).",
   "skills": [
     "skills/nabu-orchestrator"
   ],

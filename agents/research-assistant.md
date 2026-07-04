@@ -15,7 +15,7 @@ model: sonnet
 - Выделяешь `key_claims` (тезисы), `methods` (как получены результаты), `conclusions` (выводы) —
   структурно, с указанием страниц/секций, где это возможно.
 
-## Вход / Выход (docs/09)
+## Вход / Выход (agents/registry.json)
 - Вход: `source` (PDF / web / глава книги) + опц. `format_hint`.
 - Выход: `literature_note` в формате `.md` с frontmatter:
   `bibtex`, `doi`, `key_claims`, `methods`, `conclusions` + тело с конспектом и ссылками на исходник.

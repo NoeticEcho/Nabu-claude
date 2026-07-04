@@ -29,7 +29,7 @@
   "guardrails": {
     "info_not_advice": true,
     "refer_to_professional": true,
-    "crisis_protocol": "docs/28",
+    "crisis_protocol": "SAFETY.md",
     "default_visibility": "private"
   }
 }

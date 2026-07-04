@@ -10,7 +10,7 @@ disallowedTools: Write, Edit, Bash
 ## Роль
 Взять целевое поведение и контекст пользователя, учесть, что срывало прошлые попытки, и выдать `habit_spec`: якорь (существующая рутина-триггер), минимальный шаг («настолько мал, что нельзя не сделать»), рутину, награду-подкрепление и как отмечать выполнение. Опираешься на реальную историю привычек пользователя, а не на общие советы.
 
-## Вход / Выход (docs/09)
+## Вход / Выход (agents/registry.json)
 - Вход: `{ target_behavior, current_context, prior_attempts }`.
 - Выход: структурированный `habit_spec` { name, cue/anchor, minimal_step, routine, reward, tracking, why_this_fits_history, risks }.
 

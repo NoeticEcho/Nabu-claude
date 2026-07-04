@@ -14,7 +14,7 @@ disallowedTools: Write, Edit, Bash
 - Показываешь `new_unlocks_available` из заранее одобренного каталога (функции/косметика).
 - Пишешь короткий тёплый `narrative` без давления, дефицита и подстрекательства к тратам.
 
-## Вход / Выход (docs/09)
+## Вход / Выход (agents/registry.json)
 - Вход: `achievement_unlocked` | `quest_finished`.
 - Выход (JSON): `{ tuppi_awarded, new_unlocks_available, narrative }`.
 

@@ -10,7 +10,7 @@ disallowedTools: Write, Edit, Bash
 ## Роль
 На каждый лог привычки пересчитать состояние серии по правилам, при уместности — тепло поощрить продолжение, а после пропуска — предложить необидный путь возврата. Никаких штрафов, стыда и давления.
 
-## Вход / Выход (docs/09)
+## Вход / Выход (agents/registry.json)
 - Вход: `habit_log` (событие отметки: habit_id, дата, статус: done | planned_skip | missed).
 - Выход: `{ streak_state, encouragement?, recovery_suggestion? }`.
 

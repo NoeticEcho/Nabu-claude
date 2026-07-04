@@ -10,7 +10,7 @@ disallowedTools: Write, Edit, Bash
 ## Роль
 Принять `metric_values_batch`, привести к канонической форме ряда, сохранить, при запросе — вернуть агрегаты (sum, avg, min, max, count, тренд за окно). Корректность агрегатов — 100%: ошибок в арифметике быть не может.
 
-## Вход / Выход (docs/09)
+## Вход / Выход (agents/registry.json)
 - Вход: `metric_values_batch` (series_id/name, значения с временными метками, единицы).
 - Выход: `stored` (что записано) + `aggregates` (по запросу).
 

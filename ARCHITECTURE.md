@@ -2,7 +2,7 @@
 
 Nabu-claude — **отдельный проект-клиент**: работает на базе Claude Code, но подключается к **той же** базе данных, что и основное приложение Nabu (Supabase + pgvector + TypeDB). Основное приложение Nabu (~80% готово) — источник истины схемы данных; Nabu-claude читает/пишет ту же БД, не создавая параллельную модель.
 
-Этот документ дополняет `LIFE_DOMAINS_RESEARCH.md` (состав агентов), `SAFETY.md` (границы компетенции) и переиспользует контракты основного проекта (`docs/15` Option Д, `docs/28` wellbeing). Дизайн harness следует принципам agents-best-practices.
+Этот документ дополняет `LIFE_DOMAINS_RESEARCH.md` (состав агентов), `SAFETY.md` (границы компетенции) и переиспользует контракты основного проекта (`` Option Д, `SAFETY.md` wellbeing). Дизайн harness следует принципам agents-best-practices.
 
 ---
 
@@ -84,7 +84,7 @@ nabu-claude/
 ├── agents/
 │   ├── registry.json          # реестр всех агентов (поле impl → agents/<slug>.md)
 │   ├── <68>.md                # ВСЕ агенты — субагенты Claude Code (министры, функциональные,
-│   │                          #   память, конвейер docs/09, созидатели); frontmatter name/model/tools
+│   │                          #   память, конвейер agents/registry.json, созидатели); frontmatter name/model/tools
 │   └── <slug>.json            # профили личности (числовые черты + guardrails)
 ├── skills/nabu-orchestrator/  # ЕДИНСТВЕННЫЙ skill — адъютант (работает в основном контексте)
 ├── commands/                  # 19 слэш-команд (см. §7)
