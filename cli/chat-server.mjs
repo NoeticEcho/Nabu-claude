@@ -574,7 +574,7 @@ async function handleChat(req, res, opts) {
   sseSend(res, { type: "thread", threadId: thread.id, title: thread.title });
 
   const t0 = Date.now();
-  persistMessage(repoRoot, thread.id, "user", message, null, threadProfile); // fire-and-forget
+  // Профиль треда — ДО первого использования (TDZ-регрессия r3-C2 чинена).
   const threadProfile = thread.profile || "";
   const profEnv = threadProfile
     ? (() => {
@@ -582,6 +582,7 @@ async function handleChat(req, res, opts) {
         return p ? { ...(p.namespace ? { NABU_NAMESPACE: p.namespace } : {}), ...(p.user_id ? { NABU_USER_ID: p.user_id } : {}) } : {};
       })()
     : {};
+  persistMessage(repoRoot, thread.id, "user", message, null, threadProfile); // fire-and-forget
   const { sessionId, costUsd, errored, fullText } = await runClaudeExchange({
     res,
     claudeBin,
