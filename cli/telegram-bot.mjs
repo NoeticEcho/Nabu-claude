@@ -23,7 +23,7 @@
 //   имевшегося хранилища Telegram, не уходит — в облако/Claude уходит только текст расшифровки.
 
 import { spawn, spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync, unlinkSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync, unlinkSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { convId, isSharedConv } from "./conversations.mjs";
@@ -152,6 +152,41 @@ function sleep(ms, signal) {
 }
 
 // Режем длинный текст на куски ≤ limit по границам строк (одну сверхдлинную строку — жёстко).
+// Markdown → Telegram HTML (parse_mode=HTML). Telegram поддерживает узкий набор тегов:
+// b/i/u/s/code/pre/a/blockquote. Конвертируем безопасно: сначала экранируем <>&, потом
+// накладываем разметку. Незакрытая разметка в середине стрима не рендерится — HTML применяем
+// только на ФИНАЛЬНОМ сегменте (стрим идёт плейнтекстом).
+function mdToTgHtml(md) {
+  let t = String(md);
+  // защитить содержимое code/pre от дальнейшей обработки — вынести в плейсхолдеры
+  const stash = [];
+  const keep = (html) => { stash.push(html); return `\u0000${stash.length - 1}\u0000`; };
+  // ```block```
+  t = t.replace(/```([a-zA-Z0-9]*)\n?([\s\S]*?)```/g, (_, lang, code) =>
+    keep(`<pre>${esc(code.replace(/\n$/, ""))}</pre>`));
+  // `inline`
+  t = t.replace(/`([^`\n]+)`/g, (_, c) => keep(`<code>${esc(c)}</code>`));
+  // экранируем остальное
+  t = esc(t);
+  // заголовки ## → жирная строка
+  t = t.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>");
+  // жирный **x** / __x__
+  t = t.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>").replace(/__([^_\n]+)__/g, "<b>$1</b>");
+  // курсив *x* / _x_ (не задевая уже использованные)
+  t = t.replace(/(^|[^*])\*([^*\n]+)\*($|[^*])/g, "$1<i>$2</i>$3");
+  t = t.replace(/(^|[^_])_([^_\n]+)_($|[^_])/g, "$1<i>$2</i>$3");
+  // зачёркнутый ~~x~~
+  t = t.replace(/~~([^~\n]+)~~/g, "<s>$1</s>");
+  // ссылки [text](url)
+  t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, txt, url) => `<a href="${esc(url)}">${txt}</a>`);
+  // маркеры списков → • (плоско)
+  t = t.replace(/^[\t ]*[-*+]\s+/gm, "• ");
+  // вернуть code/pre
+  t = t.replace(/\u0000(\d+)\u0000/g, (_, i) => stash[Number(i)]);
+  return t;
+}
+function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
 function chunkText(text, limit = CHUNK_LIMIT) {
   const out = [];
   let cur = "";
@@ -372,18 +407,28 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
       return { end: hardEnd, skip: 0 };            // сверхдлинная строка — жёсткий рез
     }
 
-    async function sendSeg(text, withCursor) {
-      const res = await tg("sendMessage", { chat_id: msg.chat.id, text: text + (withCursor ? CURSOR : ""), ...threadParams(msg) });
+    async function sendSeg(text, withCursor, html) {
+      let res;
+      if (html) {
+        res = await tg("sendMessage", { chat_id: msg.chat.id, text: mdToTgHtml(text), parse_mode: "HTML", ...threadParams(msg) });
+        if (!res) res = await tg("sendMessage", { chat_id: msg.chat.id, text, ...threadParams(msg) });
+      } else {
+        res = await tg("sendMessage", { chat_id: msg.chat.id, text: text + (withCursor ? CURSOR : ""), ...threadParams(msg) });
+      }
       curMsgId = res?.result?.message_id ?? null;
       if (curMsgId != null) sentAny = true;
     }
-    async function editSeg(text, withCursor) {
+    async function editSeg(text, withCursor, html) {
       if (curMsgId == null) return;
       edits++;
-      // editMessageText адресуется message_id — message_thread_id ему не передаём.
-      const res = await tg("editMessageText", { chat_id: msg.chat.id, message_id: curMsgId, text: text + (withCursor ? CURSOR : "") });
-      // Провал правки (напр., пользователь удалил сообщение) — НЕ виснем: сбрасываем
-      // message_id, следующий render перепошлёт сегмент новым сообщением.
+      let res;
+      if (html) {
+        // Финальный рендер: markdown → Telegram HTML. При entity-ошибке — откат на плейн.
+        res = await tg("editMessageText", { chat_id: msg.chat.id, message_id: curMsgId, text: mdToTgHtml(text), parse_mode: "HTML" });
+        if (!res) res = await tg("editMessageText", { chat_id: msg.chat.id, message_id: curMsgId, text });
+      } else {
+        res = await tg("editMessageText", { chat_id: msg.chat.id, message_id: curMsgId, text: text + (withCursor ? CURSOR : "") });
+      }
       if (!res) curMsgId = null;
     }
 
@@ -403,12 +448,12 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
       const seg = collected.slice(committed);
       if (!seg) return;
       if (curMsgId == null) {
-        await sendSeg(seg, !final); // первое сообщение сегмента — сразу, без троттлинга
+        await sendSeg(seg, !final, final); // первое сообщение; final → сразу HTML-рендер
         lastEditAt = Date.now();
         lastLen = collected.length;
         return;
       }
-      if (final) { await editSeg(seg, false); lastLen = collected.length; return; }
+      if (final) { await editSeg(seg, false, true); lastLen = collected.length; return; }
       const now = Date.now();
       if (now - lastEditAt >= STREAM_EDIT_MS && collected.length - lastLen >= STREAM_MIN_DELTA) {
         await editSeg(seg, true);
@@ -593,6 +638,8 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     if (ttsWanted && !result.errored && answer) {
       maybeSendTts(msg, answer).catch((e) => log({ evt: "tg_tts_error", error: String(e.message).slice(0, 150) }));
     }
+    // Файлы, которые адъютант создал для пользователя (outbox) — отправить и очистить.
+    flushOutbox(msg).catch((e) => log({ evt: "tg_outbox_error", error: String(e.message).slice(0, 100) }));
   }
 
   // ── Маршрутизация обычного текста по теме ──
@@ -930,7 +977,82 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     const photo = msg.photo?.length ? msg.photo[msg.photo.length - 1] : null; // максимальный размер
     const imgDoc = msg.document && /^image\//.test(msg.document.mime_type || "") ? msg.document : null;
     if ((photo || imgDoc)?.file_id) return handlePhoto(msg, photo || imgDoc);
+    // Документ (не картинка): извлечь текст → как сообщение (или заметка во Входящих).
+    if (msg.document?.file_id) return handleDocument(msg, msg.document);
     // Прочие не-текстовые сообщения (стикеры/медиа/сервисные) молча пропускаем.
+  }
+
+  // ── Документ → сообщение: читаем текст (txt/md/csv/json/код) или pdf (pdftotext) локально ──
+  const MAX_DOC_BYTES = 20 * 1024 * 1024;
+  const TEXT_EXT = /\.(md|txt|csv|tsv|json|yaml|yml|xml|log|ini|conf|py|js|ts|mjs|sh|html|css|sql|rst|org|tex)$/i;
+  async function handleDocument(msg, doc) {
+    const t0 = Date.now();
+    let path = null;
+    try {
+      await tg("sendChatAction", { chat_id: msg.chat.id, action: "typing", ...threadParams(msg) });
+      const name = doc.file_name || "файл";
+      if (doc.file_size && doc.file_size > MAX_DOC_BYTES) { await reply(msg, `Файл «${name}» слишком большой (${Math.round(doc.file_size/1e6)}МБ > 20МБ).`); return; }
+      const got = await tg("getFile", { file_id: doc.file_id });
+      const fp = got?.result?.file_path;
+      if (!fp) { await reply(msg, "Не удалось получить файл из Telegram."); return; }
+      path = await downloadVoice(fp); // тот же загрузчик (URL→tmp, лимит), имя не важно
+      let content = "";
+      const isPdf = /\.pdf$/i.test(name) || doc.mime_type === "application/pdf";
+      if (isPdf) {
+        const r = spawnSync("pdftotext", ["-layout", path, "-"], { encoding: "utf8", maxBuffer: 30 * 1024 * 1024 });
+        if (!r.error && r.status === 0) content = String(r.stdout || "").trim();
+        else { await reply(msg, "PDF не разобрать: установите poppler(-utils) (pdftotext)."); return; }
+      } else if (TEXT_EXT.test(name) || /^text\//.test(doc.mime_type || "") || doc.mime_type === "application/json") {
+        content = readFileSync(path, "utf8");
+      } else {
+        await reply(msg, `Файл «${name}» — бинарный/неподдерживаемый тип. Пришлите текст, md, csv, json, код или PDF.`);
+        return;
+      }
+      if (!content.trim()) { await reply(msg, `Файл «${name}» пуст.`); return; }
+      content = content.slice(0, 30_000);
+      const caption = (msg.caption || "").trim();
+      // Во «Входящих» — сохранить как заметку; иначе — отправить содержимое как сообщение адъютанту/министру.
+      const threadId = msg.message_thread_id ?? null;
+      const role = (threadId != null ? state.topics[String(threadId)]?.role : null) || "adjutant";
+      if (role === "inbox") {
+        await saveNote(msg, `${caption ? caption + "\n\n" : ""}[файл: ${name}]\n${content}`);
+      } else {
+        const prompt = `${caption ? caption + "\n\n" : ""}Пользователь прислал файл «${name}». Его содержимое:\n\n${content}`;
+        await routeText({ ...msg, text: prompt }, prompt);
+      }
+      log({ evt: "tg_document", ok: true, ms: Date.now() - t0, name: name.slice(0, 40), chars: content.length });
+    } catch (e) {
+      log({ evt: "tg_document", ok: false, error: String(e.message).slice(0, 150) });
+      await reply(msg, `Не удалось обработать файл: ${String(e.message).slice(0, 150)}`);
+    } finally {
+      if (path) { try { unlinkSync(path); } catch { /* */ } }
+    }
+  }
+
+  // ── Отправка файла пользователю: sendDocument (multipart) ──
+  async function sendDocumentFile(msg, filePath) {
+    const buf = readFileSync(filePath);
+    const fd = new FormData();
+    fd.set("chat_id", String(msg.chat.id));
+    const tid = msg.message_thread_id;
+    if (tid != null) fd.set("message_thread_id", String(tid));
+    fd.set("document", new Blob([buf]), filePath.split("/").pop() || "file");
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: "POST", body: fd, signal: AbortSignal.timeout(120_000) });
+    return res.ok;
+  }
+
+  // ── Outbox: после обмена бот отправляет файлы, которые адъютант положил в ~/nabu/.nabu/outbox ──
+  async function flushOutbox(msg) {
+    const dir = join(nabuHome, ".nabu", "outbox");
+    let files;
+    try { files = readdirSync(dir).filter((f) => !f.startsWith(".")); } catch { return; }
+    for (const f of files.slice(0, 5)) {
+      const fp = join(dir, f);
+      try {
+        const ok = await sendDocumentFile(msg, fp);
+        if (ok) { unlinkSync(fp); log({ evt: "tg_outbox_sent", file: f }); }
+      } catch (e) { log({ evt: "tg_outbox_error", file: f, error: String(e.message).slice(0, 100) }); }
+    }
   }
 
   // ── Фото → память: локальное извлечение текста (vision через Ollama или tesseract) ──

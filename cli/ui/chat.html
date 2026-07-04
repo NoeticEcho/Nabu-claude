@@ -919,9 +919,20 @@
 
     // Inline code
     text = text.replace(/`([^`\n]+)`/g, function (_, c) { return "<code>" + c + "</code>"; });
+    // Headers ## → bold line
+    text = text.replace(/^#{1,6}\s+(.+)$/gm, "<strong>$1</strong>");
     // Bold  **x**  or __x__
     text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     text = text.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+    // Italic *x* / _x_
+    text = text.replace(/(^|[^*])\*([^*\n]+)\*($|[^*])/g, "$1<em>$2</em>$3");
+    text = text.replace(/(^|[^_])_([^_\n]+)_($|[^_])/g, "$1<em>$2</em>$3");
+    // Strikethrough ~~x~~
+    text = text.replace(/~~([^~\n]+)~~/g, "<s>$1</s>");
+    // Links [text](url)
+    text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function (_, t2, u) { return '<a href="' + u + '" target="_blank" rel="noopener">' + t2 + "</a>"; });
+    // Bullet lists  - x / * x → •
+    text = text.replace(/^[\t ]*[-*+]\s+/gm, "• ");
 
     // Paragraphs / line breaks
     var parts = text.split(/\n{2,}/).map(function (p) {
