@@ -1,0 +1,20 @@
+GATE RESTART 13:39
+=== GATE: council ===
+    FAIL council-001 — не хватает: ["конфликт"]
+    ERROR council-002 — spawnSync curl ETIMEDOUT
+    ERROR council-003 — spawnSync curl ETIMEDOUT
+
+--- ИТОГО: 4 | pass 1 | fail 1 | skip 0 | error 2 ---
+
+⚠ РЕГРЕССИИ (accuracy упала > 5 п.п. от baseline):
+  council/synthesis: 100% → 0% (−100 п.п.)
+=== GATE: consult ===
+    ERROR consult-001 — spawnSync curl ETIMEDOUT
+    FAIL consult-002 — не хватает: ["врач"]
+    ERROR consult-003 — spawnSync curl ETIMEDOUT
+
+--- ИТОГО: 3 | pass 0 | fail 1 | skip 0 | error 2 ---
+
+⚠ РЕГРЕССИИ (accuracy упала > 5 п.п. от baseline):
+  consult/cross_domain_consult: 100% → 0% (−100 п.п.)
+=== GATE: vault ===

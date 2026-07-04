@@ -9,7 +9,7 @@ import { z } from "zod";
 import { buildDepsOrExit, installGracefulShutdown, ok, fail, wrap } from "@nabu/lib";
 
 const deps = buildDepsOrExit("nabu-improve");
-const server = new McpServer({ name: "nabu-improve", version: "1.1.0" });
+const server = new McpServer({ name: "nabu-improve", version: "1.2.0" });
 // Единый контракт результата — из @nabu/lib (ok/fail/wrap), без локальных копий.
 
 const targetKind = z.enum(["agent", "skill", "prompt", "workflow", "council"]);

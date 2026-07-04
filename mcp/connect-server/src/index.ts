@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { buildDepsOrExit, installGracefulShutdown, ok, degraded, fail, wrap, resolveLiveConfig, type McpToolResult } from "@nabu/lib";
 
 const deps = buildDepsOrExit("nabu-connect");
-const server = new McpServer({ name: "nabu-connect", version: "1.1.0" });
+const server = new McpServer({ name: "nabu-connect", version: "1.2.0" });
 
 const reg = ((name: string, opts: unknown, h: (...a: unknown[]) => Promise<unknown>) =>
   server.registerTool(name as never, opts as never, ((...a: unknown[]) =>
