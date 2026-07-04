@@ -35,12 +35,14 @@ const BASELINES = join(__dirname, "baselines");
 const REGRESSION_THRESHOLD = 0.05; // 5 п.п.
 
 function parseArgs(argv) {
-  const a = { files: [], json: false, mode: null, record: false, updateBaseline: false, only: null, set: null, judge: false, dispatchTimeoutMs: 120000 };
+  const a = { files: [], json: false, mode: null, record: false, updateBaseline: false, only: null, set: null, judge: false, dispatchTimeoutMs: 120000, brain: "claude" };
   for (let i = 0; i < argv.length; i++) {
     const x = argv[i];
     if (x === "--json") a.json = true;
     else if (x === "--mode") a.mode = argv[++i];
     else if (x === "--record") a.record = true;
+    else if (x === "--brain") a.brain = argv[++i];
+    else if (x === "--dispatch-timeout") a.dispatchTimeoutMs = Number(argv[++i]); // claude | local (гейт «локального мозга»)
     else if (x === "--update-baseline") a.updateBaseline = true;
     else if (x === "--only") a.only = argv[++i];
     else if (x === "--set") a.set = argv[++i];
@@ -92,8 +94,9 @@ function hasClaude() {
 }
 
 function dispatchLive(c, args) {
-  if (!hasClaude()) return null;
   const persona = agentPersona(c.agent);
+  if (args.brain === "local") return dispatchLocal(c, persona, args);
+  if (!hasClaude()) return null;
   const prompt =
     `Ты действуешь СТРОГО как субагент Nabu "${c.agent}". Ниже — его определение (роль, границы ` +
     `компетенции, стиль, инварианты). Полностью прими эту роль и ответь на запрос пользователя, ` +
@@ -114,6 +117,27 @@ function dispatchLive(c, args) {
     } catch {
       return out; // на случай текстового вывода
     }
+  } catch (e) {
+    return { __error: e.message?.slice(0, 300) ?? String(e) };
+  }
+}
+
+// Гейт «полностью локального мозга» (ROADMAP ⏳): та же персона, но локальная модель.
+// Замер: node evals/runner.mjs --mode live --brain local [--set X]. Ничего не пишет в фикстуры,
+// если не задан --record (фикстуры Claude не затираем: для записи локальных — отдельный каталог).
+function dispatchLocal(c, persona, args) {
+  const base = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
+  const model = process.env.NABU_LOCAL_LLM || "qwen3:4b";
+  const prompt =
+    `Ты действуешь СТРОГО как субагент Nabu "${c.agent}". Ниже — его определение. Полностью прими роль, ` +
+    `не нарушай границ, ответь на запрос. Только ответ агента, без метакомментариев.\n\n` +
+    `=== ОПРЕДЕЛЕНИЕ ===\n${persona}\n=== КОНЕЦ ===\n\nЗапрос пользователя: ${c.input}`;
+  try {
+    const out = execFileSync("curl", ["-s", `${base}/api/chat`, "-d", JSON.stringify({
+      model, messages: [{ role: "user", content: prompt }], stream: false, think: false, options: { num_predict: 1200 },
+    })], { encoding: "utf8", timeout: args.dispatchTimeoutMs, maxBuffer: 10 * 1024 * 1024 });
+    const j = JSON.parse(out);
+    return (j.message?.content || j.message?.thinking || "").trim() || { __error: "пустой ответ локальной модели" };
   } catch (e) {
     return { __error: e.message?.slice(0, 300) ?? String(e) };
   }

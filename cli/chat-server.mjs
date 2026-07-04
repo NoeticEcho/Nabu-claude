@@ -628,7 +628,16 @@ async function handleChat(req, res, opts) {
     // Offline-degraded: Claude недоступен → локальная модель отвечает по памяти,
     // ЧЕСТНО помечая деградацию. Ассистент не «умирает» без сети/квоты.
     try {
-      const off = await offlineAnswer(repoRoot, message);
+      // T1 «локальный мозг»: агентный цикл с MCP-tools; при провале — старый recall-путь.
+      let off = null;
+      try {
+        const { localBrainAnswer } = await import("./local-brain.mjs");
+        const r = await localBrainAnswer({ message, mcpConfigPath: opts.mcpConfigPath, log: (e) => opts.log?.(e), env: profEnv });
+        off = `⚠️ **Локальный мозг** (Claude недоступен; локальная модель с инструментами — экспериментально)\n\n${r.answer}`;
+      } catch (e) {
+        opts.log?.({ evt: "local_brain_fallback", error: String(e.message).slice(0, 150) });
+        off = await offlineAnswer(repoRoot, message);
+      }
       if (off) {
         sseSend(res, { type: "text", text: off });
         sseSend(res, { type: "done", threadId: thread.id, costUsd: 0, offline: true });

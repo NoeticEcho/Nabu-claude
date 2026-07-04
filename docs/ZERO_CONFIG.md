@@ -173,6 +173,17 @@ nabu update    # git pull --ff-only → npm install → build → рестарт
 nabu doctor    # node/docker/claude/.env/сборка/ollama/модель/smoke — с кодом выхода
 ```
 
+## Локальный мозг (экспериментально, T1)
+
+При недоступном Claude (`NABU_OFFLINE_FALLBACK=1`) чат теперь отвечает **агентным циклом локальной
+модели с реальными инструментами** (cli/local-brain.mjs): память (recall/remember), задачи
+(list/add/update), календарь, знания — через те же MCP-серверы. Высокорисковое (вебхуки, vault,
+approvals) локальному мозгу не выдаётся осознанно. Модель — `NABU_LOCAL_LLM` (ollama);
+инструменты — ядро из 8 (расширение `NABU_BRAIN_TOOLS=csv`), таймаут шага —
+`NABU_BRAIN_STEP_TIMEOUT_MS`. На CPU ответ занимает минуты — это резерв, не замена; полноценный
+«локальный мозг» гейтируется прогоном evals Совета: `node evals/runner.mjs --mode live --brain
+local` (см. ROADMAP). При сбое цикла — тихий откат к простому recall-ответу.
+
 ## Где живут ваши настройки
 
 Рантайм-конфиги — в **`~/nabu/.nabu/config/`** (`schedule.json`, `profiles.json`,
