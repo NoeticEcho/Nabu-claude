@@ -112,6 +112,15 @@ function appendEnvKeys(pairs) {
   appendFileSync(ENV_PATH, (existsSync(ENV_PATH) && readFileSync(ENV_PATH, "utf8").length ? "\n" : "") + block + "\n");
   return missing.map(([k]) => k);
 }
+/** Upsert одного ключа в .env (в отличие от appendEnvKeys — перезаписывает существующий). */
+function setEnvKey(key, value) {
+  let text = existsSync(ENV_PATH) ? readFileSync(ENV_PATH, "utf8") : "";
+  const line = `${key}=${value}`;
+  const re = new RegExp(`^${key}=.*$`, "m");
+  if (re.test(text)) text = text.replace(re, line);
+  else text = text + (text && !text.endsWith("\n") ? "\n" : "") + line + "\n";
+  writeFileSync(ENV_PATH, text);
+}
 function loadEnvIntoProcess() {
   for (const [k, v] of Object.entries(readEnvFile())) if (process.env[k] === undefined) process.env[k] = v;
   applyProfile();
@@ -281,6 +290,16 @@ async function cmdInit(flags) {
 
   // 5. Ollama + модель
   await ensureOllama(needOllamaContainer, flags.noModel);
+
+  // Инвентаризация железа (по просьбе: init оценивает возможности машины под локальные модели).
+  try {
+    const hw = await import("./hardware.mjs");
+    const inv = hw.inventory();
+    info(`Железо: ${hw.describeHardware(inv)}`);
+    const rec = hw.recommend(inv);
+    if (rec.chat) info(`Локальный мозг (offline) — рекомендую ${rec.chat.name} (${hw.speedNote(inv, rec.chat)}). Выбор/установка: nabu models`);
+    else info("Для локального мозга не хватает памяти — offline-режим будет ограничен. Каталог: nabu models");
+  } catch { /* инвентаризация не критична */ }
 
   // 6. Сборка (если dist отсутствует)
   if (!existsSync(join(REPO_ROOT, "lib", "dist", "index.js"))) {
@@ -1382,6 +1401,95 @@ async function cmdRestore(args, flags) {
 function containerRunning(name) {
   return sh("docker", ["inspect", "--format", "{{.State.Running}}", name], { windowsHide: true }).out.includes("true");
 }
+// ── models: инвентаризация железа + каталог локальных моделей + выбор/установка ──
+async function cmdModels(args, flags) {
+  loadEnvIntoProcess();
+  const hw = await import("./hardware.mjs");
+  const inv = hw.inventory();
+  const base = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
+  let installed = new Set();
+  try {
+    const tags = await (await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(3000) })).json();
+    installed = new Set((tags.models || []).map((m) => m.name));
+  } catch { /* ollama не поднят — покажем каталог без отметок */ }
+
+  console.log(`\n${C.b}Железо этой машины${C.x}\n  ${hw.describeHardware(inv)}`);
+  const rec = hw.recommend(inv);
+  console.log(`\n${C.b}Рекомендации под ваше железо${C.x}`);
+  for (const role of ["chat", "embed", "vision"]) {
+    const m = rec[role];
+    const label = { chat: "мозг (локальный)", embed: "эмбеддинги", vision: "фото→память" }[role];
+    console.log(`  ${label}: ${m ? C.g + m.name + C.x + " — " + hw.speedNote(inv, m) : C.y + "нет влезающей модели" + C.x}`);
+  }
+
+  const annotated = hw.annotateForHardware(inv);
+  console.log(`\n${C.b}Каталог (ollama.com/models — сверяйте свежие релизы)${C.x}`);
+  console.log("  роль    модель                          мин.ОЗУ  влезает  установлена  примечание");
+  annotated.forEach((m, i) => {
+    const mark = m.fits ? C.g + "да " + C.x : C.y + "нет" + C.x;
+    const inst = [...installed].some((n) => n.startsWith(m.name.split(":")[0])) ? C.g + "✓" + C.x : " ";
+    const speed = m.role === "chat" ? ` · ${hw.speedNote(inv, m)}` : "";
+    console.log(`  ${String(i + 1).padStart(2)}. ${m.role.padEnd(6)} ${m.name.padEnd(30)} ${String(m.ramFloorGb).padStart(4)}ГБ   ${mark}     ${inst}         ${m.note}${speed}`);
+  });
+
+  if (flags.list) return;
+
+  // Выбор + установка
+  const idxRaw = args[0] || (await promptLine(`\nНомер модели для установки (Enter — пропустить): `, flags));
+  const idx = Number(idxRaw);
+  if (!idx || idx < 1 || idx > annotated.length) { info("Установка не выбрана."); return; }
+  const chosen = annotated[idx - 1];
+  if (!chosen.fits && !(await confirm(`${chosen.name} требует ~${chosen.ramFloorGb}ГБ, у вас бюджет ${inv.budgetGb}ГБ — всё равно ставить?`, flags))) return;
+
+  info(`Скачиваю ${chosen.name} (однократно)…`);
+  const res = await fetch(`${base}/api/pull`, { method: "POST", body: JSON.stringify({ name: chosen.name }) });
+  if (!res.ok || !res.body) { err(`Не удалось начать загрузку (${res.status}) — Ollama поднят?`); process.exitCode = 1; return; }
+  await streamPull(res);
+  ok(`${chosen.name} установлена.`);
+
+  // Прописать в .env по роли
+  const key = chosen.role === "chat" ? "NABU_LOCAL_LLM" : chosen.role === "vision" ? "NABU_VISION_MODEL" : "OLLAMA_EMBED_MODEL";
+  if (await confirm(`Сделать ${chosen.name} моделью по умолчанию для роли '${chosen.role}' (${key})?`, { ...flags, yes: flags.yes })) {
+    setEnvKey(key, chosen.name);
+    ok(`${key}=${chosen.name} записано в .env`);
+    if (chosen.role === "chat") info("Локальный мозг (offline-режим) теперь использует её. Проверка: node evals/runner.mjs --mode live --brain local");
+  }
+}
+
+async function promptLine(q, flags) {
+  if (flags.yes || !process.stdin.isTTY) return "";
+  const { createInterface } = await import("node:readline/promises");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const a = (await rl.question(q)).trim();
+  rl.close();
+  return a;
+}
+
+async function streamPull(res) {
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  let lastPct = -1;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf("\n")) !== -1) {
+      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+      if (!line) continue;
+      try {
+        const j = JSON.parse(line);
+        if (j.total && j.completed) {
+          const pct = Math.floor((j.completed / j.total) * 100);
+          if (pct !== lastPct && pct % 10 === 0) { process.stdout.write(`\r  ${j.status || "загрузка"}: ${pct}%   `); lastPct = pct; }
+        }
+      } catch { /* */ }
+    }
+  }
+  process.stdout.write("\n");
+}
+
 // ── reset: стереть ДАННЫЕ и state, сохранив установку ──
 // Не трогает НИКОГДА: контент workspace (~/nabu/* — ваши заметки/md), ~/nabu/.backups,
 // .env (пароли и NABU_VAULT_KEY — их потеря = потеря vault и доступа к бэкапам) без --hard.
@@ -1572,6 +1680,7 @@ ${C.b}nabu${C.x} — zero-config запуск Nabu (ИИ-Совет на Claude 
   nabu schedule [enable|disable <j>] список/управление agent-задачами
   nabu update                        git pull → build → рестарт демона
   nabu stop | daemon                 остановить демон · запустить в форграунде
+  nabu models [--list] [N]           инвентаризация железа + каталог локальных моделей, установка
   nabu doctor [--deep]               диагностика (+диск/БД/лог/бэкап/расписание)
   nabu profiles [add <имя>]          профили: список / создать (--profile=<имя> у любой команды)
   nabu version                       версия
@@ -1602,6 +1711,7 @@ switch (cmd) {
   case "daemon": await cmdDaemon(); break;
   case "update": doUpdate(); break;
   case "doctor": await cmdDoctor(flags); break;
+  case "models": await cmdModels(rest, flags); break;
   case "profiles": {
     if (rest[0] === "add" && rest[1]) {
       loadEnvIntoProcess();
