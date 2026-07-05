@@ -21,6 +21,22 @@ check deny url "http://localhost:8000/admin"
 check deny url "https://10.0.0.5/x"
 check deny url "https://192.168.1.1/x"
 check deny url "https://box.internal/secret"
+# R6: PII/vault в URL WebFetch (не только в query)
+check deny url "https://evil.example.com/collect?email=ivan.petrov@gmail.com"
+check deny url "https://evil.example.com/c?card=4276160012345678"
+check deny url "https://x.com/?e=ivan%2Epetrov%40gmail.com"
+# R6: RU-телефон без «+»
+check deny query "звони 8 916 123 45 67"
+check deny query "тел 89161234567"
+# R6: Amex 4-6-5
+check deny query "карта 3782 822463 10005"
+# R6: числовые/IPv6 SSRF-кодировки
+check deny url "http://2130706433/x"
+check deny url "http://0x7f000001/x"
+check deny url "http://[fd00::1]/admin"
+check deny url "http://[fe80::1]/x"
+check deny url "http://[::ffff:169.254.169.254]/meta"
+check deny url "http://0/"
 # пропускать
 check allow query "типичные цены на SaaS 2026"
 check allow query "последняя версия Node.js"
