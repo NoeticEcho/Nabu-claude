@@ -1708,6 +1708,11 @@ async function cmdLibrary(rest, flags) {
       const domain = flags.domain || die("укажите --domain (тема: psychology/law/uiux…)");
       let text, source, origin;
       if (/^https?:\/\//i.test(src)) {
+        // SSRF-гард: не тянем внутренние/приватные хосты.
+        const h = new URL(src).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+        if (h === "localhost" || h.endsWith(".localhost") || h === "::1" || /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(h) || /^f[cd][0-9a-f]{2}:/.test(h) || /^fe[89ab][0-9a-f]:/.test(h)) {
+          die(`внутренний/приватный хост запрещён (SSRF): ${h}`);
+        }
         info(`Загружаю ${src}…`);
         const r = await fetch(src, { redirect: "follow", headers: { "user-agent": "Nabu-library/1.0" }, signal: AbortSignal.timeout(30000) });
         if (!r.ok) die(`HTTP ${r.status}`);
