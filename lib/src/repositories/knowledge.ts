@@ -5,6 +5,7 @@ import type { Postgres } from "../db/postgres.js";
 import type { Embedder } from "../embeddings.js";
 import { toVectorLiteral } from "../embeddings.js";
 import type { Visibility } from "../types.js";
+import { DomainClassifier } from "../domain-classify.js";
 
 export type KnowledgeKind = "personal" | "library";
 
@@ -61,8 +62,18 @@ export function chunkText(text: string, maxChars = 1200, overlap = 150): string[
   return chunks;
 }
 
+/** Наиболее частый домен среди чанков (для домена источника в реестре при автоклассификации). */
+function dominant(domains: (string | null)[]): string | null {
+  const counts = new Map<string, number>();
+  for (const d of domains) if (d) counts.set(d, (counts.get(d) ?? 0) + 1);
+  let best: string | null = null, n = 0;
+  for (const [d, c] of counts) if (c > n) { best = d; n = c; }
+  return best;
+}
+
 export class KnowledgeRepository {
   private nsId: string | null = null;
+  private classifier: DomainClassifier | null = null;
 
   constructor(
     private readonly pg: Postgres,
@@ -90,8 +101,22 @@ export class KnowledgeRepository {
     const ns = await this.ns();
     const chunks = chunkText(text);
     // Сначала считаем ВСЕ эмбеддинги (долгая часть — Ollama), и лишь потом мутируем БД.
-    const embedded: string[] = [];
-    for (const chunk of chunks) embedded.push(toVectorLiteral(await this.embedder.embed(chunk, visibility)));
+    const vecs: number[][] = [];
+    for (const chunk of chunks) vecs.push(await this.embedder.embed(chunk, visibility));
+    const embedded = vecs.map(toVectorLiteral);
+
+    // Домен per-chunk: явный o.domain на все, ЛИБО (library без домена) — автоклассификация каждого
+    // чанка по таксономии (один источник может покрывать много тем — распределяем автоматически).
+    const perChunkDomain: (string | null)[] = [];
+    const auto = kind === "library" && !o.domain;
+    if (auto) {
+      if (!this.classifier) this.classifier = new DomainClassifier(this.embedder);
+      for (const v of vecs) perChunkDomain.push((await this.classifier.classifyVec(v)).domain);
+    } else {
+      for (let i = 0; i < chunks.length; i++) perChunkDomain.push(o.domain ?? null);
+    }
+    // Домен источника в реестре: явный, иначе доминирующий среди авто-доменов (для обзора).
+    const srcDomain = o.domain ?? dominant(perChunkDomain);
 
     await this.pg.tx(async (t) => {
       await t.query("delete from knowledge_chunk where namespace = $1 and source = $2", [ns, source]);
@@ -102,17 +127,16 @@ export class KnowledgeRepository {
            on conflict (namespace, source, chunk_index) do update
              set content = excluded.content, embedding = excluded.embedding, visibility = excluded.visibility,
                  kind = excluded.kind, domain = excluded.domain, title = excluded.title`,
-          [ns, source, i, chunks[i], visibility, kind, o.domain ?? null, o.title ?? null, embedded[i]],
+          [ns, source, i, chunks[i], visibility, kind, perChunkDomain[i], o.title ?? null, embedded[i]],
         );
       }
-      // Реестр источников (для list/stats): upsert по (namespace, source).
       await t.query(
         `insert into knowledge_source(namespace, source, kind, domain, title, origin, chunks, updated_at)
          values ($1,$2,$3,$4,$5,$6,$7, now())
          on conflict (namespace, source) do update
            set kind = excluded.kind, domain = excluded.domain, title = excluded.title,
                origin = excluded.origin, chunks = excluded.chunks, updated_at = now()`,
-        [ns, source, kind, o.domain ?? null, o.title ?? null, o.origin ?? source, chunks.length],
+        [ns, source, kind, srcDomain, o.title ?? null, o.origin ?? source, chunks.length],
       );
     });
     return chunks.length;

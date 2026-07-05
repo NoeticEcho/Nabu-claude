@@ -351,13 +351,14 @@ reg(
     title: "Добавить источник в библиотеку знаний",
     description:
       "Проиндексировать КНИГУ/ДОКУМЕНТ/URL как reference-знание Nabu и агентов (kind='library', НЕ о " +
-      "пользователе), с тематикой domain. Приём: локальный path (в песочнице) ИЛИ url (страница веба). " +
-      "Из этого знания библиотечный куратор (агент library-curator) может дистиллировать скиллы и " +
-      "предложить доменного агента. НЕ клади сюда личные данные пользователя — это отдельный слой памяти.",
+      "пользователе). domain НЕОБЯЗАТЕЛЕН: если не указан — каждый фрагмент авто-классифицируется по " +
+      "теме (один источник, напр. энциклопедия, распределяется по многим доменам). Приём: локальный " +
+      "path (в песочнице) ИЛИ url. Куратор (library-curator) дистиллирует из этого скиллы/агентов. " +
+      "НЕ клади сюда личные данные пользователя — это отдельный слой памяти.",
     inputSchema: {
       path: z.string().optional(),
       url: z.string().url().optional(),
-      domain: z.string().min(1),
+      domain: z.string().optional(),
       title: z.string().optional(),
     },
   },
@@ -376,9 +377,9 @@ reg(
     }
     if (!text.trim()) return fail("Источник пуст после извлечения текста");
     const chunks = await deps.knowledge.indexDocument(source, text, {
-      kind: "library", visibility: "default", domain, title: title ?? source, origin,
+      kind: "library", visibility: "default", domain: domain || undefined, title: title ?? source, origin,
     });
-    return result(`В библиотеку (${domain}): '${title ?? source}' — ${chunks} чанков`, { source, domain, title: title ?? source, chunks });
+    return result(`В библиотеку (${domain || 'авто-домены'}): '${title ?? source}' — ${chunks} чанков`, { source, domain, title: title ?? source, chunks });
   },
 );
 

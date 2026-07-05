@@ -1714,12 +1714,12 @@ async function cmdIndex(rest, flags) {
   if (!lib.isUnderAllowedRoot(target)) die(`Папка вне песочницы (разрешено: ~ и $NABU_HOME). Задайте NABU_INDEX_ROOTS для расширения.`);
   const deps = lib.buildDeps();
   const kind = flags.library ? "library" : "personal";
-  if (kind === "library" && !flags.domain) die("для --library укажите --domain=<тема>");
+  // --library без --domain → автоклассификация тем per-chunk
   info(`Индексирую ${target} (${kind}${flags.domain ? ", domain=" + flags.domain : ""})…`);
   let lastLine = 0;
   try {
     const res = await lib.indexFolder(deps.knowledge, target, {
-      kind, domain: flags.domain, visibility: kind === "library" ? "default" : "private",
+      kind, domain: typeof flags.domain === "string" ? flags.domain : undefined, visibility: kind === "library" ? "default" : "private",
       onProgress: (p) => {
         const now = Date.now();
         if (now - lastLine > 500 || p.done === p.total) { // не спамим терминал
@@ -1745,7 +1745,7 @@ async function cmdLibrary(rest, flags) {
     if (sub === "add") {
       const src = rest[1];
       if (!src) die("nabu library add <файл|URL> --domain <тема> [--title <имя>]");
-      const domain = flags.domain || die("укажите --domain (тема: psychology/law/uiux…)");
+      const domain = typeof flags.domain === "string" ? flags.domain : undefined; // без домена → автоклассификация
       let text, source, origin;
       if (/^https?:\/\//i.test(src)) {
         // SSRF-гард: не тянем внутренние/приватные хосты.
@@ -1767,7 +1767,7 @@ async function cmdLibrary(rest, flags) {
       }
       if (!text?.trim()) die("источник пуст");
       const n = await deps.knowledge.indexDocument(source, text, { kind: "library", visibility: "default", domain, title: flags.title || source, origin });
-      ok(`В библиотеку (${domain}): «${flags.title || source}» — ${n} чанков`);
+      ok(`В библиотеку (${domain || "авто-домены"}): «${flags.title || source}» — ${n} чанков`);
     } else if (sub === "list") {
       const items = await deps.knowledge.listSources({ kind: "library", domain: flags.domain });
       if (!items.length) { info("Библиотека пуста. Добавьте: nabu library add <файл|URL> --domain <тема>"); return; }
