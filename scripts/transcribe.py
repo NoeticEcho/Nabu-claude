@@ -17,7 +17,7 @@ def main() -> int:
         print(json.dumps({"ok": False, "error": "не задан путь к аудио"}))
         return 2
     audio = sys.argv[1]
-    model_name = sys.argv[2] if len(sys.argv) > 2 else "large-v3"
+    model_name = sys.argv[2] if len(sys.argv) > 2 else "small"
     language = sys.argv[3] if len(sys.argv) > 3 else "auto"
 
     import os
@@ -45,7 +45,7 @@ def main() -> int:
         print(json.dumps({
             "ok": False,
             "error": f"faster-whisper не установлен: {exc}",
-            "hint": "pip install faster-whisper",
+            "hint": "uv-venv с faster-whisper не готов (Nabu ставит его автоматически при первом голосовом)",
         }))
         return 3
 

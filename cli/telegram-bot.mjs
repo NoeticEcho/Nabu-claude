@@ -832,6 +832,50 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     return pythonBin;
   }
 
+  // ── Голосовой движок (faster-whisper) в изолированном uv-venv ──
+  // На Arch/Manjaro системный `pip install` заблокирован (PEP 668). Держим faster-whisper в
+  // отдельном uv-venv внутри workspace — системный Python не трогаем, токены не нужны (модели
+  // whisper публичные). Путь к его python кэшируем.
+  const WHISPER_VENV = join(nabuHome, ".nabu", "whisper-venv");
+  const whisperVenvPython = () => join(WHISPER_VENV, "bin", process.platform === "win32" ? "python.exe" : "python");
+  let whisperBin; // undefined=не проверяли, string=готов, null=нет
+  function whisperPython() {
+    if (typeof whisperBin === "string") return whisperBin;
+    const py = whisperVenvPython();
+    if (existsSync(py)) {
+      const r = spawnSync(py, ["-c", "import faster_whisper"], { stdio: "ignore" });
+      if (!r.error && r.status === 0) { whisperBin = py; return py; }
+    }
+    return null; // не готов (не кэшируем null: могли доустановить)
+  }
+  let whisperInstalling = null;
+  // Ленивая установка faster-whisper через uv (для свежих инсталляций). Возвращает python или null.
+  function ensureWhisper() {
+    if (whisperInstalling) return whisperInstalling; // одна установка за раз
+    whisperInstalling = (async () => {
+      try {
+        const uv = spawnSync("uv", ["--version"], { stdio: "ignore" });
+        if (uv.error || uv.status !== 0) return null; // нет uv — установить нечем
+        const py = whisperVenvPython();
+        if (!existsSync(py)) {
+          const v = spawnSync("uv", ["venv", WHISPER_VENV, "--python", "3.12"], { stdio: "ignore", timeout: 120000 });
+          if (v.error || v.status !== 0) return null;
+        }
+        const inst = spawnSync("uv", ["pip", "install", "--python", py, "faster-whisper"], { stdio: "ignore", timeout: 600000 });
+        if (inst.error || inst.status !== 0) return null;
+        whisperBin = py;
+        log({ evt: "tg_whisper_installed" });
+        return py;
+      } catch (e) {
+        log({ evt: "tg_whisper_install_error", error: String(e.message).slice(0, 150) });
+        return null;
+      } finally {
+        whisperInstalling = null;
+      }
+    })();
+    return whisperInstalling;
+  }
+
   // Bot API Telegram НЕ отдаёт через getFile/download файлы больше 20 МБ — жёсткий лимит.
   // (Обойти можно только локальным Bot API сервером; для нас — честно сообщить пользователю.)
   const TG_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
@@ -863,7 +907,7 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
       const args = [
         join(repoRoot, "scripts", "transcribe.py"),
         audioPath,
-        process.env.WHISPER_MODEL || "large-v3",
+        process.env.WHISPER_MODEL || "small",
         "auto",
       ];
       let child;
@@ -908,10 +952,18 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     await reply(msg, "🎙 Расшифровываю…");
     let audioPath = null;
     try {
-      const bin = detectPython();
+      let bin = whisperPython();
       if (!bin) {
-        await reply(msg, "Не удалось расшифровать: не найден интерпретатор Python.\npip install faster-whisper");
-        log({ evt: "tg_voice", ok: false, ms: Date.now() - t0 });
+        // Свежая установка: ставим faster-whisper в uv-venv (разовая настройка, без системного pip).
+        await reply(msg, "🔧 Первый запуск голосового движка — устанавливаю локальный faster-whisper (uv). Это разовая настройка, ~1–3 минуты…");
+        bin = await ensureWhisper();
+      }
+      if (!bin) {
+        const hasUv = spawnSync("uv", ["--version"], { stdio: "ignore" }).status === 0;
+        await reply(msg, hasUv
+          ? "Не удалось установить голосовой движок (faster-whisper). Проверьте интернет и повторите; при повторении — гляну логи (tg_whisper_install_error)."
+          : "Голосовой движок не установлен, и нет `uv` для автонастройки. Установите uv (https://astral.sh/uv) или faster-whisper вручную — тогда расшифровка заработает.");
+        log({ evt: "tg_voice", ok: false, reason: "no_whisper", ms: Date.now() - t0 });
         return;
       }
       const declaredSize = Number(media?.file_size) || 0;
