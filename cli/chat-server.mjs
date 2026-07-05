@@ -410,6 +410,8 @@ function runClaudeExchange({ res, claudeBin, repoRoot, message, resumeSessionId,
     if (resumeSessionId) args.push("--resume", resumeSessionId);
     if (mcpConfigPath) args.push("--mcp-config", mcpConfigPath);
     args.push("--allowedTools", ALLOWED_TOOLS);
+    // Изоляция от внешних плагинов/хуков (claude-mem и др.): только Nabu (см. telegram-bot).
+    args.push("--strict-mcp-config", "--setting-sources", "project,local");
 
     let child;
     try {
@@ -702,6 +704,20 @@ async function handleChat(req, res, opts) {
     if (!res.writableEnded) res.end(); // поток держали открытым для фолбэка — закрываем в любом случае
   }
   if (fullText) persistMessage(repoRoot, thread.id, "assistant", fullText, costUsd ?? null, threadProfile);
+  // Беседа → эпизодическая память Nabu (первоклассная память). Приватно, локальный эмбеддинг.
+  if (fullText && message.trim().length >= 12) {
+    (async () => {
+      try {
+        const deps = await getLibDeps(repoRoot, threadProfile);
+        await deps.memory.rememberEpisode({
+          event: `Беседа (веб): пользователь — «${message.slice(0, 1500)}». Ответ: ${fullText.slice(0, 1500)}`,
+          actors: ["пользователь", "адъютант"],
+          context: { source: "web", threadId: thread.id },
+          visibility: "private",
+        });
+      } catch (e) { opts.log?.({ evt: "web_episode_error", error: String(e.message).slice(0, 120) }); }
+    })();
+  }
 
 
   // JSONL-лог обмена (для диагностики; текст сообщения НЕ пишем — приватность).

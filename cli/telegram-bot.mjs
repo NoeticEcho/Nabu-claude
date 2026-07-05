@@ -227,6 +227,10 @@ function runClaude({ claudeBin, repoRoot, text, resumeSessionId, mcpConfigPath, 
     if (resumeSessionId) args.push("--resume", resumeSessionId);
     if (mcpConfigPath) args.push("--mcp-config", mcpConfigPath);
     args.push("--allowedTools", ALLOWED_TOOLS);
+    // Изоляция: только Nabu. --strict-mcp-config — лишь наши MCP-серверы; --setting-sources
+    // project,local — грузим ТОЛЬКО настройки репо (Nabu), НЕ user-global (где включён внешний
+    // claude-mem и прочие плагины/хуки). Память пользователя оркеструет исключительно Nabu.
+    args.push("--strict-mcp-config", "--setting-sources", "project,local");
 
     let child;
     try {
@@ -653,6 +657,23 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     const ttsWanted = process.env.NABU_TTS === "1" || (process.env.NABU_TTS !== "0" && opts.voiceOrigin === true);
     if (ttsWanted && !result.errored && answer) {
       maybeSendTts(msg, answer).catch((e) => log({ evt: "tg_tts_error", error: String(e.message).slice(0, 150) }));
+    }
+    // Беседа → эпизодическая память Nabu (первоклассная память, а не внешний плагин).
+    // Приватно, локальный эмбеддинг. Тривиальное (короткое/команды) — пропускаем.
+    if (result.text?.trim() && (opts.originalText || "").trim().length >= 12 && !/^!\s*\S/.test(opts.originalText || "")) {
+      (async () => {
+        try {
+          const deps = await getDeps();
+          const u = (opts.originalText || "").slice(0, 1500);
+          const a = result.text.trim().slice(0, 1500);
+          await deps.memory.rememberEpisode({
+            event: `Беседа (${role}): пользователь — «${u}». Ответ: ${a}`,
+            actors: ["пользователь", role === "adjutant" ? "адъютант" : role],
+            context: { source: "telegram", role, channel: cid },
+            visibility: "private",
+          });
+        } catch (e) { log({ evt: "tg_episode_error", error: String(e.message).slice(0, 120) }); }
+      })();
     }
     // Файлы, которые адъютант создал для пользователя — отправить.
     // (а) явный outbox; (б) новые файлы в workspace, появившиеся за этот обмен (отчёты и т.п.).
