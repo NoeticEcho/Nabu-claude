@@ -3,7 +3,10 @@
   "version": "1.9.0",
   "description": "Nabu-claude — личный ИИ-Совет для всех сфер жизни внутри Claude Code: 73 агента (9 министров, специалисты, конвейер) как субагенты; адъютант-оркестратор — skill. Локальный standalone-стек (docker, zero-config), workspace ~/nabu, проактивные задачи, самоулучшение (Commons).",
   "skills": [
-    "skills/nabu-orchestrator"
+    "skills/nabu-orchestrator",
+    "skills/nabu-marketing",
+    "skills/nabu-product",
+    "skills/nabu-sales"
   ],
   "commands": [
     "commands/nabu-index.md",
@@ -25,7 +28,13 @@
     "commands/nabu-evaluate.md",
     "commands/nabu-feedback.md",
     "commands/nabu-metrics.md",
-    "commands/nabu-triage.md"
+    "commands/nabu-triage.md",
+    "commands/nabu-tasks.md",
+    "commands/nabu-onboard.md",
+    "commands/nabu-propose.md",
+    "commands/nabu-vote.md",
+    "commands/nabu-contribute.md",
+    "commands/nabu-review-pr.md"
   ],
   "mcpServers": {
     "nabu-memory": {
