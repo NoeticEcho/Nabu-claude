@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/install.sh — одностро́чный установщик Nabu-claude.
 #
-#   curl -fsSL https://raw.githubusercontent.com/nabu-ai/nabu-claude/master/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/noeticecho/nabu-claude/master/scripts/install.sh | bash
 #
 # Идемпотентно: повторный запуск обновляет существующую установку (git pull --ff-only),
 # переустанавливает зависимости и пересобирает. Ничего не удаляет.

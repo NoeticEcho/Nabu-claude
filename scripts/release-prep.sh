@@ -33,7 +33,7 @@ print(f"  ✓ commons.repo = {sys.argv[1]}/{sys.argv[2]}")
 PY
 
 echo "== 4. Проверка чистоты =="
-LEFT=$(grep -rl "noeticecho" --include="*.md" --include="*.sh" --include="*.ps1" --include="*.json" . | grep -v node_modules | grep -v "^\./\.claude/" | grep -v "release-prep.sh" || true)
+LEFT=$(grep -rlE "noeticecho|nabu-ai" --include="*.md" --include="*.sh" --include="*.ps1" --include="*.json" . | grep -v node_modules | grep -v "^\./\.claude/" | grep -v "release-prep.sh" || true)
 if [ -n "$LEFT" ]; then echo "  ⚠ Остались плейсхолдеры:"; echo "$LEFT"; else echo "  ✓ noeticecho нигде не остался"; fi
 npm run test >/dev/null 2>&1 && echo "  ✓ тесты зелёные" || echo "  ✗ ТЕСТЫ УПАЛИ — не публиковать"
 
