@@ -170,7 +170,7 @@ export function buildDeps(overrides: { namespace?: string; userId?: string } = {
  */
 /**
  * Зарегистрировать корректное завершение: на SIGINT/SIGTERM закрыть graph-клиент и pg-пул,
- * затем выйти. Иначе соединения к ОБЩЕЙ Supabase висят до таймаута пула (делят лимит с основным Nabu).
+ * затем выйти. Иначе соединения к локальной Postgres висят до таймаута пула (делят лимит с основным Nabu).
  */
 export function installGracefulShutdown(deps: Pick<NabuDeps, "pg" | "graphClient">): void {
   let closing = false;

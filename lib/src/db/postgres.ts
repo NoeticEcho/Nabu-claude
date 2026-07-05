@@ -1,4 +1,4 @@
-// Прямое подключение к общей БД (Supabase Postgres) через пул pg.
+// Прямое подключение к общей БД (Postgres Postgres) через пул pg.
 // Батч-индексация и MCP-серверы используют пул; интерактивный агент — через MCP-tools.
 
 import pg from "pg";
@@ -14,14 +14,14 @@ export class Postgres {
   private readonly pool: pg.Pool;
 
   constructor(connectionString: string) {
-    // Бюджет соединений к ОБЩЕЙ Supabase: несколько MCP-серверов делят лимит pooler'а с
+    // Бюджет соединений к локальной Postgres: несколько MCP-серверов делят лимит pooler'а с
     // основным приложением Nabu. Держим малый пул на процесс; переопределяется NABU_PG_POOL_MAX.
     const poolMax = Math.max(1, Number(process.env.NABU_PG_POOL_MAX ?? 3));
     this.pool = new pg.Pool({
       connectionString,
       max: poolMax,
       idleTimeoutMillis: 30_000,
-      // TLS: по умолчанию не проверяем цепочку (Supabase pooler за TLS). Для строгой проверки
+      // TLS: по умолчанию не проверяем цепочку (Postgres pooler за TLS). Для строгой проверки
       // задать NABU_PG_SSL_STRICT=1 (и sslmode=verify-full/CA в DATABASE_URL). См. docs/SECURITY note.
       ssl: connectionString.includes("sslmode=disable")
         ? undefined

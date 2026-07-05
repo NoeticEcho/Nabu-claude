@@ -1,5 +1,5 @@
 // Узкий доступ к доменным таблицам основного Nabu (projects/tasks/goals/habits/quests/
-// character_sheet/xp_ledger). Заменяет сырой Supabase SQL в субагентах на типизированные методы.
+// character_sheet/xp_ledger). Заменяет сырой SQL в субагентах на типизированные методы.
 // Скоуп по пользователю (в персональном режиме — единственный/первый). Записи — write-класс.
 
 import type { Postgres, Tx } from "../db/postgres.js";

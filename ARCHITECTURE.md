@@ -1,16 +1,18 @@
 # Nabu-claude — Архитектура
 
-Nabu-claude — **отдельный проект-клиент**: работает на базе Claude Code, но подключается к **той же** базе данных, что и основное приложение Nabu (Supabase + pgvector + TypeDB). Основное приложение Nabu (~80% готово) — источник истины схемы данных; Nabu-claude читает/пишет ту же БД, не создавая параллельную модель.
+Nabu-claude — **standalone-продукт** (решение v1.0.0): работает на Claude Code с собственным
+локальным стеком (Postgres+pgvector, TypeDB, Ollama в docker). Shared-режим к БД основного
+приложения Nabu УДАЛЁН. Схема — наследие основного Nabu: расширяется только аддитивно.
 
-Этот документ дополняет `LIFE_DOMAINS_RESEARCH.md` (состав агентов), `SAFETY.md` (границы компетенции) и переиспользует контракты основного проекта (`` Option Д, `SAFETY.md` wellbeing). Дизайн harness следует принципам agents-best-practices.
+Этот документ дополняет `LIFE_DOMAINS_RESEARCH.md` (состав агентов), `SAFETY.md` (границы компетенции). Дизайн harness следует принципам agents-best-practices.
 
 ---
 
-## 1. Отношение к основному Nabu
+## 1. Локальный стек (standalone)
 
-- **Та же БД**: Supabase (Postgres + pgvector) и TypeDB — общие. Nabu-claude — ещё один клиент.
-- **Схема — из основного приложения**: не дублировать и не «переизобретать» таблицы. Сверяться с реальной схемой через Supabase/TypeDB MCP. Дополнительные таблицы (память агентов, личность, реестр агентов, журнал совещаний) — только если их ещё нет; добавлять аддитивно, не ломая.
-- **Совместимость**: типы visibility (`default/private/vault`), namespace пользователя, контракты — те же. Privacy-routing идентичен.
+- **Собственная БД**: локальный Postgres + pgvector и TypeDB в docker (не Supabase, не общая с основным Nabu). Nabu-claude — самодостаточный.
+- **Схема — наследие основного Nabu**: не дублировать и не «переизобретать» таблицы. Дополнительные таблицы (память агентов, личность, реестр агентов, журнал совещаний) — добавлять аддитивно, не ломая.
+- **Приватность**: типы visibility (`default/private/vault`), namespace пользователя. Vault E2E-шифр, эмбеддинги только локально (Ollama). Privacy-routing — см. `SAFETY.md`, инвариант #2.
 - **Мозг — Claude Code (Max)**: рассуждение выполняет Claude Code, не отдельные API-вызовы. Тяжёлое (эмбеддинги, транскрипция) — локальные модели.
 
 ## 2. Harness-дисциплина (из agents-best-practices)
@@ -69,16 +71,15 @@ Nabu-claude — **отдельный проект-клиент**: работае
 
 ## 5. Память и личность
 
-Идентично персональному режиму (переиспользуем из основного пакета плагина):
-- **Память**: 7 типов на 3 хранилищах (рабочая, эпизодическая, семантическая, процедурная, ассоциативная, проспективная, автобиографическая). Схемы — `schema/`. Общая БД с основным Nabu.
+- **Память**: 7 типов на 3 хранилищах (рабочая, эпизодическая, семантическая, процедурная, ассоциативная, проспективная, автобиографическая). Схемы — `schema/`. Локальная БД (standalone).
 - **Личность**: числовые черты на агента (`agents/*.json`) → директивы по `PERSONALITY_RENDERING.md`. Стилизация, не сознание.
 - Все агенты Совета имеют доступ к общей памяти пользователя → общий контекст для коллегиального рассуждения.
 
-## 6. Структура плагина (как реализовано, v0.8.0)
+## 6. Структура плагина
 
 ```
 nabu-claude/
-├── .claude-plugin/plugin.json          # 1 skill, 19 commands, 7 mcpServers
+├── .claude-plugin/plugin.json          # 4 skills, 26 commands, 8 mcpServers
 ├── CLAUDE.md, ARCHITECTURE.md, AGENT_INTEGRATION.md, LIFE_DOMAINS_RESEARCH.md,
 │   SAFETY.md, PERSONALITY_RENDERING.md, INSTALL.md, README.md
 ├── agents/
@@ -87,8 +88,8 @@ nabu-claude/
 │   │                          #   память, конвейер agents/registry.json, созидатели); frontmatter name/model/tools
 │   └── <slug>.json            # профили личности (числовые черты + guardrails)
 ├── skills/nabu-orchestrator/  # ЕДИНСТВЕННЫЙ skill — адъютант (работает в основном контексте)
-├── commands/                  # 19 слэш-команд (см. §7)
-├── mcp/                       # 7 серверов: memory, pipeline, council, voice, analytics, domain, improve
+├── commands/                  # 26 слэш-команд (см. §7)
+├── mcp/                       # 8 серверов: memory, pipeline, council, voice, analytics, domain, improve, connect
 ├── lib/                       # порты, репозитории, типы, stats, personality, Postgres+tx (Option Д)
 ├── hooks/hooks.json           # SessionStart / PreToolUse(guard) / PostToolUse(autocommit)
 ├── scripts/                   # init-workspace, hooks/*, install-cron, transcribe.py
@@ -99,7 +100,7 @@ nabu-claude/
 > Только адъютант — skill; всё остальное — субагенты (`agents/*.md`), диспатч через Task/Agent Teams.
 > Профили `agents/*.json` — не субагенты, а числовые черты личности.
 
-## 7. Команды Claude Code (19)
+## 7. Команды Claude Code (26)
 
 Ядро: `/nabu-init` (workspace) · `/nabu-index <папка>` (папка→база знаний) · `/nabu-ask` (адъютант с
 памятью) · `/nabu-council` (Совет командой) · `/nabu-decide` (decision-maker) · `/nabu-new-agent`
@@ -108,9 +109,9 @@ nabu-claude/
 Созидание/само-улучшение/расписание: `/nabu-build` · `/nabu-digest` · `/nabu-cron` · `/nabu-research` ·
 `/nabu-scout` · `/nabu-evaluate` · `/nabu-feedback` · `/nabu-metrics`.
 
-## 8. MCP-серверы (7, реализованы)
+## 8. MCP-серверы (8, реализованы)
 
-- **nabu-memory**: 7 типов памяти (Supabase+pgvector+TypeDB) + личность (`render_personality`) +
+- **nabu-memory**: 7 типов памяти (Postgres+pgvector+TypeDB) + личность (`render_personality`) +
   governance (`request_approval`/`log_action`) + `system_task` + `purge_expired_working`.
 - **nabu-pipeline**: индексация папок в базу знаний (sandbox путей, локальные эмбеддинги).
 - **nabu-council**: `deliberation`-буфер (позиции/синтез) — durable-запись совещания.
@@ -119,6 +120,7 @@ nabu-claude/
 - **nabu-domain**: узкий доступ к доменным таблицам основного Nabu (проекты/задачи/цели/привычки/
   квесты/RPG/метрики), scope по `NABU_USER_ID`, мульти-write атомарны (`Postgres.tx`).
 - **nabu-improve**: эффективность агентов + предложения улучшений + трекинг советов↔исходов.
+- **nabu-connect**: коннекторы (GET-only, allowlist путей) + вебхуки (HMAC, replay-protected); внешние вызовы — через approval.
 
 Все — узкие типизированные tools, единый контракт результата (`lib/mcp-result`), обёртка ошибок,
 graceful shutdown; высокорисковые действия — через approval (best-practices).
