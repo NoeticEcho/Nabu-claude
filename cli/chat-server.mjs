@@ -584,6 +584,12 @@ function runClaudeExchange({ res, claudeBin, repoRoot, message, resumeSessionId,
 // Request routing
 // ---------------------------------------------------------------------------
 
+// Лимит одновременных Claude-детей (аудит R6, M14): без него любой localhost-клиент мог запустить
+// неограниченно процессов (каждый до 10 мин) → истощение ресурсов + неограниченные траты Claude.
+// По умолчанию 4, переопределяется NABU_MAX_CONCURRENT_CHATS.
+const MAX_CONCURRENT_CHATS = Math.max(1, Number(process.env.NABU_MAX_CONCURRENT_CHATS) || 4);
+let activeChatChildren = 0;
+
 async function handleChat(req, res, opts) {
   const { nabuHome, repoRoot, claudeBin } = opts;
   let body;
@@ -600,6 +606,19 @@ async function handleChat(req, res, opts) {
     sendJson(res, 400, { error: "empty_message" });
     return;
   }
+
+  // Гейт нагрузки: не запускаем больше MAX_CONCURRENT_CHATS Claude-сессий одновременно.
+  // Проверка+инкремент атомарны (JS однопоточен); декремент — по закрытию ответа (покрывает ВСЕ
+  // пути выхода, включая ранние return и разрыв клиента).
+  if (activeChatChildren >= MAX_CONCURRENT_CHATS) {
+    res.writeHead(429, { "content-type": "application/json", "retry-after": "10" });
+    res.end(JSON.stringify({ error: "busy", message: `Сейчас выполняется ${activeChatChildren} сессий (лимит ${MAX_CONCURRENT_CHATS}). Повторите через несколько секунд.` }));
+    return;
+  }
+  activeChatChildren++;
+  let chatReleased = false;
+  const releaseChat = () => { if (!chatReleased) { chatReleased = true; activeChatChildren--; } };
+  res.once("close", releaseChat);
 
   // Resolve or create the thread.
   let thread;
