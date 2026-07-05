@@ -30,7 +30,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..");
 const NABU_HOME = process.env.NABU_HOME || join(homedir(), "nabu");
 const STATE_DIR = join(NABU_HOME, ".nabu");
-const ENV_PATH = process.env.NABU_ENV_PATH || join(REPO_ROOT, ".env");
+// .env живёт в workspace (standalone). Дефолт — NABU_HOME/.env; на репо/.env откатываемся, только
+// если workspace-.env нет (dev). Раньше дефолт был REPO_ROOT/.env → голый `nabu` читал старый
+// dev-.env (supabase) вместо деплойного — чужая БД.
+const ENV_PATH = process.env.NABU_ENV_PATH
+  || (existsSync(join(NABU_HOME, ".env")) ? join(NABU_HOME, ".env") : join(REPO_ROOT, ".env"));
 const PID_FILE = join(STATE_DIR, "daemon.pid");
 const LOG_FILE = join(STATE_DIR, "daemon.log");
 // ── Живые конфиги пользователя — ВНЕ git (r3-M1): рантайм-правки (schedule enable, profiles add,

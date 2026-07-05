@@ -105,8 +105,16 @@ ok "CLI слинкован: $bin_dir/nabu → $PWD/cli/nabu.mjs"
 
 case ":$PATH:" in
   *":$bin_dir:"*) : ;;
-  *) warn "$bin_dir не в PATH. Добавьте в ~/.profile или ~/.zshrc строку:"
-     echo "    export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
+  *)
+    # Авто-добавляем в профиль (bash+zsh), чтобы `nabu` заработал в новых сессиях.
+    line='export PATH="$HOME/.local/bin:$PATH"'
+    for prof in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc"; do
+      [ -e "$prof" ] || continue
+      grep -qsF "$bin_dir" "$prof" || printf '\n# nabu CLI\n%s\n' "$line" >> "$prof"
+    done
+    export PATH="$bin_dir:$PATH"
+    warn "$bin_dir добавлен в PATH профиля — откройте новый терминал (или source профиль)."
+    ;;
 esac
 
 nabu_cmd="$bin_dir/nabu"
