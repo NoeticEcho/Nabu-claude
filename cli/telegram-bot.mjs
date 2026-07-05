@@ -1272,7 +1272,13 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
       { command: "setup", description: "Создать темы форума" },
       { command: "approvals", description: "Ожидающие подтверждения" },
     ];
-    await tg("setMyCommands", { commands }).catch(() => {});
+    // Повтор: одиночный вызов при старте может попасть на транзиентный сетевой сбой (fetch failed).
+    for (let attempt = 0; attempt < 4 && !stopped; attempt++) {
+      const r = await tg("setMyCommands", { commands }).catch(() => null);
+      if (r?.ok) { log({ evt: "tg_commands_set", n: commands.length }); return; }
+      await sleep(2000, undefined);
+    }
+    log({ evt: "tg_commands_set_failed" });
   }
 
   // ── Long-polling ──
