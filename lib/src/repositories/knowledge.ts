@@ -6,6 +6,8 @@ import type { Embedder } from "../embeddings.js";
 import { toVectorLiteral } from "../embeddings.js";
 import type { Visibility } from "../types.js";
 
+export type KnowledgeKind = "personal" | "library";
+
 export interface KnowledgeHit {
   id: string;
   source: string;
@@ -13,6 +15,28 @@ export interface KnowledgeHit {
   content: string;
   score: number;
   visibility: Visibility;
+  kind: KnowledgeKind;
+  domain?: string;
+  title?: string;
+}
+
+export interface IndexOpts {
+  visibility?: Visibility;
+  kind?: KnowledgeKind;
+  domain?: string;
+  title?: string;
+  origin?: string;
+}
+
+export interface KnowledgeSource {
+  source: string;
+  kind: KnowledgeKind;
+  domain?: string;
+  title?: string;
+  origin?: string;
+  chunks: number;
+  addedAt: string;
+  updatedAt: string;
 }
 
 /** Разбить текст на чанки ~maxChars с перекрытием, по границам абзацев/предложений. */
@@ -51,55 +75,70 @@ export class KnowledgeRepository {
     return this.nsId;
   }
 
-  /** Индексировать один документ: перезаписывает его чанки (идемпотентно по source). */
-  async indexDocument(source: string, text: string, visibility: Visibility = "private"): Promise<number> {
+  /** Индексировать один документ: перезаписывает его чанки (идемпотентно по source).
+   *  opts.kind='library' + domain/title — reference-знание агентов (НЕ о пользователе). */
+  async indexDocument(source: string, text: string, opts: IndexOpts | Visibility = {}): Promise<number> {
+    // Обратная совместимость: раньше 3-м аргументом была visibility-строка.
+    const o: IndexOpts = typeof opts === "string" ? { visibility: opts } : opts;
+    const visibility: Visibility = o.visibility ?? (o.kind === "library" ? "default" : "private");
+    const kind: KnowledgeKind = o.kind ?? "personal";
     // Приватность (аудит R6, M1): база знаний — публично-семантический слой (plaintext + эмбеддинг +
-    // векторный поиск). Она НЕ шифрует vault и не может дать vault-гарантии. Поэтому vault сюда не
-    // принимаем — для приватного текста используйте vault-заметки (nabu-memory), не индексацию.
+    // векторный поиск). Она НЕ шифрует vault. Поэтому vault сюда не принимаем.
     if (visibility === "vault") {
       throw new Error("vault нельзя индексировать в базу знаний (нет шифрования/исключения из поиска). Используйте vault-заметку в nabu-memory.");
     }
     const ns = await this.ns();
     const chunks = chunkText(text);
-    // Сначала считаем ВСЕ эмбеддинги (долгая часть — Ollama), и лишь потом мутируем БД:
-    // так окно между delete и insert минимально (крах на эмбеддинге не оставит документ пустым).
+    // Сначала считаем ВСЕ эмбеддинги (долгая часть — Ollama), и лишь потом мутируем БД.
     const embedded: string[] = [];
     for (const chunk of chunks) embedded.push(toVectorLiteral(await this.embedder.embed(chunk, visibility)));
 
-    // Атомарно: delete + reinsert чанков документа (частичный сбой не оставит документ полу-переиндексированным).
     await this.pg.tx(async (t) => {
       await t.query("delete from knowledge_chunk where namespace = $1 and source = $2", [ns, source]);
       for (let i = 0; i < chunks.length; i++) {
         await t.query(
-          `insert into knowledge_chunk(namespace, source, chunk_index, content, visibility, embedding)
-           values ($1,$2,$3,$4,$5,$6::vector)
+          `insert into knowledge_chunk(namespace, source, chunk_index, content, visibility, kind, domain, title, embedding)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::vector)
            on conflict (namespace, source, chunk_index) do update
-             set content = excluded.content, embedding = excluded.embedding, visibility = excluded.visibility`,
-          [ns, source, i, chunks[i], visibility, embedded[i]],
+             set content = excluded.content, embedding = excluded.embedding, visibility = excluded.visibility,
+                 kind = excluded.kind, domain = excluded.domain, title = excluded.title`,
+          [ns, source, i, chunks[i], visibility, kind, o.domain ?? null, o.title ?? null, embedded[i]],
         );
       }
+      // Реестр источников (для list/stats): upsert по (namespace, source).
+      await t.query(
+        `insert into knowledge_source(namespace, source, kind, domain, title, origin, chunks, updated_at)
+         values ($1,$2,$3,$4,$5,$6,$7, now())
+         on conflict (namespace, source) do update
+           set kind = excluded.kind, domain = excluded.domain, title = excluded.title,
+               origin = excluded.origin, chunks = excluded.chunks, updated_at = now()`,
+        [ns, source, kind, o.domain ?? null, o.title ?? null, o.origin ?? source, chunks.length],
+      );
     });
     return chunks.length;
   }
 
-  async search(query: string, topK = 8): Promise<KnowledgeHit[]> {
+  /** Семантический поиск. opts.domain / opts.kind — сузить область (агент ищет в своём домене). */
+  async search(query: string, opts: { topK?: number; domain?: string; kind?: KnowledgeKind } | number = {}): Promise<KnowledgeHit[]> {
+    const o = typeof opts === "number" ? { topK: opts } : opts; // обратная совместимость (search(q, topK))
+    const topK = o.topK ?? 8;
     const ns = await this.ns();
     const qEmb = toVectorLiteral(await this.embedder.embedQuery(query));
+    const conds = ["namespace = $1", "embedding is not null", "visibility <> 'vault'"];
+    const params: unknown[] = [ns, qEmb, topK];
+    if (o.kind) { params.push(o.kind); conds.push(`kind = $${params.length}`); }
+    if (o.domain) { params.push(o.domain); conds.push(`domain = $${params.length}`); }
     const rows = await this.pg.query<{
-      id: string;
-      source: string;
-      chunk_index: number;
-      content: string;
-      visibility: string;
-      score: number;
+      id: string; source: string; chunk_index: number; content: string;
+      visibility: string; kind: string; domain: string | null; title: string | null; score: number;
     }>(
-      `select id, source, chunk_index, content, visibility,
+      `select id, source, chunk_index, content, visibility, kind, domain, title,
               1 - (embedding <=> $2::vector) as score
        from knowledge_chunk
-       where namespace = $1 and embedding is not null and visibility <> 'vault'
+       where ${conds.join(" and ")}
        order by embedding <=> $2::vector
        limit $3`,
-      [ns, qEmb, topK],
+      params,
     );
     return rows.map((r) => ({
       id: r.id,
@@ -108,6 +147,31 @@ export class KnowledgeRepository {
       content: r.content,
       score: Number(r.score),
       visibility: r.visibility as Visibility,
+      kind: r.kind as KnowledgeKind,
+      domain: r.domain ?? undefined,
+      title: r.title ?? undefined,
+    }));
+  }
+
+  /** Список источников библиотеки (реестр). */
+  async listSources(opts: { kind?: KnowledgeKind; domain?: string } = {}): Promise<KnowledgeSource[]> {
+    const ns = await this.ns();
+    const conds = ["namespace = $1"];
+    const params: unknown[] = [ns];
+    if (opts.kind) { params.push(opts.kind); conds.push(`kind = $${params.length}`); }
+    if (opts.domain) { params.push(opts.domain); conds.push(`domain = $${params.length}`); }
+    const rows = await this.pg.query<{
+      source: string; kind: string; domain: string | null; title: string | null;
+      origin: string | null; chunks: number; added_at: string; updated_at: string;
+    }>(
+      `select source, kind, domain, title, origin, chunks, added_at, updated_at
+       from knowledge_source where ${conds.join(" and ")} order by updated_at desc`,
+      params,
+    );
+    return rows.map((r) => ({
+      source: r.source, kind: r.kind as KnowledgeKind, domain: r.domain ?? undefined,
+      title: r.title ?? undefined, origin: r.origin ?? undefined, chunks: Number(r.chunks),
+      addedAt: r.added_at, updatedAt: r.updated_at,
     }));
   }
 

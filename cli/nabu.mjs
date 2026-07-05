@@ -19,7 +19,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, openSync, closeSync, renameSync, unlinkSync, readdirSync, appendFileSync, statSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes, randomUUID } from "node:crypto";
 import { homedir, platform } from "node:os";
 import { createServer } from "node:net";
@@ -1695,6 +1695,54 @@ WantedBy=default.target
   die(`install-service: платформа ${os} не поддерживается`);
 }
 
+// ── Библиотека знаний (Q2): reference-источники (книги/URL) отдельно от памяти о пользователе ──
+async function cmdLibrary(rest, flags) {
+  const sub = rest[0];
+  loadEnvIntoProcess(); // env из ENV_PATH (~/Nabu/.env), НЕ репо-.env; не зовём lib.hydrateEnv (он читает репо)
+  const lib = await import(pathToFileURL(join(REPO_ROOT, "lib", "dist", "index.js")).href);
+  const deps = lib.buildDeps();
+  try {
+    if (sub === "add") {
+      const src = rest[1];
+      if (!src) die("nabu library add <файл|URL> --domain <тема> [--title <имя>]");
+      const domain = flags.domain || die("укажите --domain (тема: psychology/law/uiux…)");
+      let text, source, origin;
+      if (/^https?:\/\//i.test(src)) {
+        info(`Загружаю ${src}…`);
+        const r = await fetch(src, { redirect: "follow", headers: { "user-agent": "Nabu-library/1.0" }, signal: AbortSignal.timeout(30000) });
+        if (!r.ok) die(`HTTP ${r.status}`);
+        const raw = (await r.text()).slice(0, 5_000_000);
+        text = /text\/plain/.test(r.headers.get("content-type") || "")
+          ? raw
+          : raw.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*\n+/g, "\n\n").trim();
+        source = src; origin = src;
+      } else {
+        const abs = resolve(src);
+        text = readFileSync(abs, "utf8"); source = abs; origin = abs; // текстовые файлы; PDF/OCR — через адъютанта (MCP)
+      }
+      if (!text?.trim()) die("источник пуст");
+      const n = await deps.knowledge.indexDocument(source, text, { kind: "library", visibility: "default", domain, title: flags.title || source, origin });
+      ok(`В библиотеку (${domain}): «${flags.title || source}» — ${n} чанков`);
+    } else if (sub === "list") {
+      const items = await deps.knowledge.listSources({ kind: "library", domain: flags.domain });
+      if (!items.length) { info("Библиотека пуста. Добавьте: nabu library add <файл|URL> --domain <тема>"); return; }
+      for (const s of items) console.log(`  [${s.domain || "—"}] ${s.title || s.source}  ·  ${s.chunks} чанков`);
+      ok(`Источников: ${items.length}`);
+    } else if (sub === "search") {
+      const q = rest.slice(1).join(" ");
+      if (!q) die("nabu library search <запрос> [--domain <тема>]");
+      const hits = await deps.knowledge.search(q, { topK: Number(flags.topK) || 6, kind: "library", domain: flags.domain });
+      if (!hits.length) { info("Ничего не найдено."); return; }
+      for (const h of hits) console.log(`  (${h.score.toFixed(2)}) [${h.domain || "—"}] ${(h.title || h.source)}\n    ${h.content.slice(0, 160).replace(/\n/g, " ")}…`);
+      ok(`Найдено: ${hits.length}`);
+    } else {
+      console.log("nabu library add <файл|URL> --domain <тема> [--title <имя>]\nnabu library list [--domain <тема>]\nnabu library search <запрос> [--domain <тема>]");
+    }
+  } finally {
+    await deps.pg?.close?.();
+  }
+}
+
 // ── main ──
 const argv = process.argv.slice(2);
 const cmd = argv.find((a) => !a.startsWith("--")) || "help"; // флаги можно и до команды
@@ -1782,6 +1830,7 @@ switch (cmd) {
   }
   case "schedule": cmdSchedule(rest); break;
   case "install-service": cmdInstallService(); break;
+  case "library": case "lib": await cmdLibrary(rest, flags); break;
   case "import-health": await cmdImportHealth(rest, flags); break;
   case "import-finance": await cmdImportFinance(rest, flags); break;
   case "reset": await cmdReset(flags); break;

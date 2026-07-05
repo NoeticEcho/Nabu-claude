@@ -37,6 +37,35 @@ function isLocalHost(url: string): boolean {
   return false;
 }
 
+/** Получить текст веб-страницы для библиотеки: fetch → strip HTML. SSRF-гард (не тянем внутренние
+ *  хосты). Лимит размера. Возвращает {ok,text} или {ok:false,error}. */
+async function fetchUrlText(url: string): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  let u: URL;
+  try { u = new URL(url); } catch { return { ok: false, error: "некорректный URL" }; }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return { ok: false, error: "только http/https" };
+  if (isLocalHost(url)) return { ok: false, error: "внутренний/приватный хост запрещён (SSRF)" };
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      redirect: "follow",
+      headers: { "user-agent": "Nabu-library/1.0", accept: "text/html,text/plain,*/*" },
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 200) }; }
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+  const ct = res.headers.get("content-type") || "";
+  const raw = (await res.text()).slice(0, 5_000_000); // 5МБ кап
+  if (/text\/plain/.test(ct)) return { ok: true, text: raw };
+  // strip HTML → текст: убрать script/style, теги → пробелы, схлопнуть пустоты, декодировать сущности.
+  const text = raw
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*\n+/g, "\n\n").trim();
+  return { ok: true, text };
+}
+
 const visibility = z.enum(["default", "private", "vault"]);
 const TEXT_EXT = new Set([".md", ".markdown", ".txt", ".text"]);
 // Локальное извлечение текста: pdftotext (poppler) для PDF, tesseract (OCR) для изображений.
@@ -298,13 +327,72 @@ reg(
   "search_knowledge",
   {
     title: "Поиск по базе знаний",
-    description: "Семантический поиск по проиндексированным документам. Возвращает топ-K фрагментов с оценкой.",
-    inputSchema: { query: z.string().min(1), topK: z.number().int().min(1).max(30).default(8) },
+    description:
+      "Семантический поиск по базе знаний. domain — сузить до тематики (psychology/law/uiux…); " +
+      "kind — 'library' (справочное знание из книг/URL, НЕ о пользователе) или 'personal' (заметки пользователя). " +
+      "Агент ищет reference-знание в своей области: kind='library', domain=<своя тема>.",
+    inputSchema: {
+      query: z.string().min(1),
+      topK: z.number().int().min(1).max(30).default(8),
+      domain: z.string().optional(),
+      kind: z.enum(["personal", "library"]).optional(),
+    },
     annotations: { readOnlyHint: true },
   },
-  async ({ query, topK }) => {
-    const hits = await deps.knowledge.search(query, topK);
+  async ({ query, topK, domain, kind }) => {
+    const hits = await deps.knowledge.search(query, { topK, domain, kind });
     return result(hits.length ? `Найдено ${hits.length} фрагментов` : "Ничего не найдено", { hits });
+  },
+);
+
+reg(
+  "add_library_source",
+  {
+    title: "Добавить источник в библиотеку знаний",
+    description:
+      "Проиндексировать КНИГУ/ДОКУМЕНТ/URL как reference-знание Nabu и агентов (kind='library', НЕ о " +
+      "пользователе), с тематикой domain. Приём: локальный path (в песочнице) ИЛИ url (страница веба). " +
+      "Из этого знания библиотечный куратор (агент library-curator) может дистиллировать скиллы и " +
+      "предложить доменного агента. НЕ клади сюда личные данные пользователя — это отдельный слой памяти.",
+    inputSchema: {
+      path: z.string().optional(),
+      url: z.string().url().optional(),
+      domain: z.string().min(1),
+      title: z.string().optional(),
+    },
+  },
+  async ({ path, url, domain, title }) => {
+    if (!path && !url) return fail("Укажите path (локальный файл) или url (страница веба)");
+    let text: string, source: string, origin: string;
+    if (url) {
+      const r = await fetchUrlText(url);
+      if (!r.ok) return fail(`Не удалось получить URL: ${r.error}`, { url });
+      text = r.text; source = url; origin = url;
+    } else {
+      const root = assertAllowedRoot(path as string);
+      const ex = extractText(root);
+      if (!ex.text) return fail(`Не удалось извлечь текст (${ex.method}): ${ex.error ?? "пусто"}`, { path });
+      text = ex.text; source = root; origin = root;
+    }
+    if (!text.trim()) return fail("Источник пуст после извлечения текста");
+    const chunks = await deps.knowledge.indexDocument(source, text, {
+      kind: "library", visibility: "default", domain, title: title ?? source, origin,
+    });
+    return result(`В библиотеку (${domain}): '${title ?? source}' — ${chunks} чанков`, { source, domain, title: title ?? source, chunks });
+  },
+);
+
+reg(
+  "list_library_sources",
+  {
+    title: "Источники библиотеки",
+    description: "Список reference-источников библиотеки (опц. фильтр по domain). Для обзора базы знаний Nabu.",
+    inputSchema: { domain: z.string().optional() },
+    annotations: { readOnlyHint: true },
+  },
+  async ({ domain }) => {
+    const items = await deps.knowledge.listSources({ kind: "library", domain });
+    return result(`Источников в библиотеке: ${items.length}`, { sources: items });
   },
 );
 
