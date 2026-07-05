@@ -1199,8 +1199,13 @@ async function cmdBackup(flags = {}, log = (m) => info(m)) {
         ? ["--user", `${process.getuid()}:${process.getgid()}`]
         : [];
       await shAsync("docker", ["stop", "nabu-typedb"], { windowsHide: true });
-      const r = await shAsync("docker", ["run", "--rm", ...userArg, "-v", "nabu_nabu-typedb:/data:ro", "-v", `${outDir}:/backup`, "alpine", "tar", "czf", `/backup/typedb-${ts}.tar.gz`, "-C", "/data", "."], { windowsHide: true });
-      await shAsync("docker", ["start", "nabu-typedb"], { windowsHide: true });
+      let r;
+      try {
+        r = await shAsync("docker", ["run", "--rm", ...userArg, "-v", "nabu_nabu-typedb:/data:ro", "-v", `${outDir}:/backup`, "alpine", "tar", "czf", `/backup/typedb-${ts}.tar.gz`, "-C", "/data", "."], { windowsHide: true });
+      } finally {
+        // R6-minor: гарантируем перезапуск TypeDB даже при падении tar — иначе контейнер остаётся off.
+        await shAsync("docker", ["start", "nabu-typedb"], { windowsHide: true });
+      }
       accept(r.code === 0, dst, "TypeDB", 500, r.errOut);
     }
   }
@@ -1391,9 +1396,14 @@ async function cmdRestore(args, flags) {
   if (td) {
     info("TypeDB: замена тома…");
     await shAsync("docker", ["stop", "nabu-typedb"], { windowsHide: true });
-    const r = await shAsync("docker", ["run", "--rm", "-v", "nabu_nabu-typedb:/data", "-v", `${resolve(dir)}:/backup:ro`, "alpine",
-      "sh", "-c", `rm -rf /data/* && tar xzf /backup/${td} -C /data`], { windowsHide: true });
-    await shAsync("docker", ["start", "nabu-typedb"], { windowsHide: true });
+    let r;
+    try {
+      r = await shAsync("docker", ["run", "--rm", "-v", "nabu_nabu-typedb:/data", "-v", `${resolve(dir)}:/backup:ro`, "alpine",
+        "sh", "-c", `rm -rf /data/* && tar xzf /backup/${td} -C /data`], { windowsHide: true });
+    } finally {
+      // R6-minor: TypeDB перезапускается даже при сбое восстановления (не остаётся off).
+      await shAsync("docker", ["start", "nabu-typedb"], { windowsHide: true });
+    }
     r.code === 0 ? ok(`TypeDB восстановлен из ${td}`) : failedR.push("typedb: " + r.errOut.slice(0, 150));
   }
   // 3. Workspace: поверх NABU_HOME.

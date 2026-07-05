@@ -213,11 +213,15 @@ export class DomainRepository {
         );
         already = !!dup;
       }
-      const r = await t.queryOne<{ id: string }>(
-        `insert into habit_logs(habit_id, user_id, occurred_on, status)
-         values ($1,$2,coalesce($3::date, current_date),$4) returning id`,
-        [habitId, u, occurredOn ?? null, status],
-      );
+      // R6-minor: не плодим дубли лог-строк (портили стрик/историю). Повторная отметка того же
+      // дня/статуса — идемпотентна: возвращаем существующую строку, XP не начисляем повторно.
+      const r = already
+        ? { id: "" }
+        : await t.queryOne<{ id: string }>(
+            `insert into habit_logs(habit_id, user_id, occurred_on, status)
+             values ($1,$2,coalesce($3::date, current_date),$4) returning id`,
+            [habitId, u, occurredOn ?? null, status],
+          );
       const xp: XpAward[] = [];
       if (scored && !already) {
         if (status === "done") {
