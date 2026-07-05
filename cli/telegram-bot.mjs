@@ -804,8 +804,10 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     return pythonBin;
   }
 
-  // Скачать файл из хранилища Telegram во временный файл. Лимит 100MB (по content-length и факту).
-  const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
+  // Bot API Telegram НЕ отдаёт через getFile/download файлы больше 20 МБ — жёсткий лимит.
+  // (Обойти можно только локальным Bot API сервером; для нас — честно сообщить пользователю.)
+  const TG_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
+  const MAX_AUDIO_BYTES = TG_DOWNLOAD_LIMIT;
   async function downloadVoice(filePath) {
     const ext = filePath.match(/\.[a-z0-9]+$/i)?.[0] || ".oga";
     const tmpDir = join(nabuHome, ".nabu", "tmp");
@@ -884,9 +886,15 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
         log({ evt: "tg_voice", ok: false, ms: Date.now() - t0 });
         return;
       }
+      const declaredSize = Number(media?.file_size) || 0;
+      if (declaredSize > TG_DOWNLOAD_LIMIT) {
+        await reply(msg, `Файл ~${Math.round(declaredSize / 1e6)} МБ — Telegram не даёт ботам скачивать файлы больше 20 МБ. Пришлите запись как голосовое сообщение (кнопка микрофона — оно сжимается) или более короткий/сжатый файл.`);
+        log({ evt: "tg_voice", ok: false, reason: "too_big", bytes: declaredSize, ms: Date.now() - t0 });
+        return;
+      }
       const got = await tg("getFile", { file_id: media.file_id });
       const filePath = got?.result?.file_path;
-      if (!filePath) throw new Error("Telegram не вернул путь к файлу");
+      if (!filePath) throw new Error("Telegram не отдал файл (вероятно, больше 20 МБ — лимит Bot API на скачивание). Пришлите короче или голосовым сообщением.");
       audioPath = await downloadVoice(filePath);
       const res = await runTranscribe(bin, audioPath);
       // tmp больше не нужен ни при успехе, ни при отказе — удаляем сразу.
@@ -1133,9 +1141,13 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     let imgPath = null;
     try {
       await tg("sendChatAction", { chat_id: msg.chat.id, action: "typing", ...threadParams(msg) });
+      if ((Number(media?.file_size) || 0) > TG_DOWNLOAD_LIMIT) {
+        await reply(msg, `Изображение ~${Math.round(Number(media.file_size) / 1e6)} МБ — Telegram не даёт ботам скачивать файлы больше 20 МБ. Пришлите сжатее или меньшего размера.`);
+        return;
+      }
       const got = await tg("getFile", { file_id: media.file_id });
       const fp = got?.result?.file_path;
-      if (!fp) { await reply(msg, "Не удалось получить файл из Telegram."); return; }
+      if (!fp) { await reply(msg, "Telegram не отдал файл (вероятно, больше 20 МБ — лимит Bot API на скачивание). Пришлите меньшего размера."); return; }
       imgPath = await downloadVoice(fp); // тот же загрузчик: URL→tmp, лимит размера
       let text = "";
       let method = "";
