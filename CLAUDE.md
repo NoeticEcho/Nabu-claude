@@ -84,6 +84,7 @@ Commons (федеративное самоулучшение, opt-in, `docs/COMM
 
 ## Рабочие правила
 
+- Версии: SemVer по VERSIONING.md; bump через scripts/version.mjs; тег + gh release.
 - Сборка: сначала план, потом код; после каждой фазы — контрольная точка.
 - Свежие API (Whisper, TypeDB 3.x, pgvector, MCP SDK) — сверять через context7.
 - Архитектурные решения вне docs — не выбирать молча, спрашивать.

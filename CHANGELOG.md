@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-07-05
+### Added
+- **Библиотека знаний (reference)** — источники (книги/доки/URL) как знание агентов и Совета,
+  ОТДЕЛЬНО от памяти о пользователе. `kind=library`/`domain`; MCP `add_library_source`/
+  `search_knowledge(domain,kind)`/`list_library_sources`; CLI `nabu library add|list|search`;
+  агент `library-curator` (дистилляция скиллов + предложение доменного агента); `/nabu-library`;
+  `docs/LIBRARY.md`. URL-приём с strip-HTML и SSRF-гардом. Изоляция от личного recall проверена.
+- **SemVer-политика** (`VERSIONING.md`) + `scripts/version.mjs` (единый бампер по всем файлам,
+  предложение по conventional-commits).
+### Fixed
+- Транскрипция: таймаут масштабируется по длине аудио (был фикс 10 мин → длинные записи падали).
+- Аудит Round 6 (см. `AUDIT.md`): self-approval loop, web-privacy URL-скан+SSRF+RU-телефон,
+  plugin.json 26/4, vault в knowledge/эпизодах/extract, visibility CHECK, CSRF-гейт, лимит
+  Claude-детей, гонки JSON-записи, ограничение агентов, honesty/kindness-полы, актуализация доков.
+- M6/M16: единое ядро claude-моста (`buildClaudeArgs`/`makeNdjsonParser`); адъютант работает в
+  workspace (`--plugin-dir`, cwd=~/nabu) — файлы в workspace, не в код-репо.
+
 ## [1.9.0] — 2026-07-05
 ### Security / Privacy
 - **Демон изолирован от внешних плагинов и облака.** Headless-дети адъютанта наследовали
