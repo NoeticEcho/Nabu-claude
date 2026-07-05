@@ -86,6 +86,10 @@ runs on local models. Claude does the thinking; your machine does the rememberin
   reaches the database. Vault entries get **no embeddings at all** — not even local
   ones — and never enter the model context through routine paths. Local-LLM
   extraction (`extract_entities_local`) processes vault notes without Claude seeing the text.
+- **Localhost trust model.** The web server binds to `127.0.0.1` and rejects DNS-rebinding
+  (Host check) and cross-origin browser requests (Origin/Sec-Fetch-Site) on state-changing
+  endpoints. Any process on your machine that can reach the port is trusted by design — this is
+  a single-user local tool; do not expose the port to untrusted networks.
 - **You approve risk.** Any external/financial/destructive action creates an approval
   request that only a **human button press** (web ✅/❌ or Telegram inline keyboard)
   can resolve — the model cannot approve itself.

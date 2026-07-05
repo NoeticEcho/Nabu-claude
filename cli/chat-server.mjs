@@ -769,6 +769,23 @@ function createRequestHandler(opts) {
     const path = url.pathname;
     const method = req.method || "GET";
 
+    // CSRF-гейт (аудит R6, M5): мутирующие запросы (POST/PUT/PATCH/DELETE) от браузера обязаны
+    // быть same-origin. Вредоносный сайт, делающий fetch на 127.0.0.1:4517, шлёт Origin своего
+    // домена / Sec-Fetch-Site: cross-site → отклоняем (иначе любая открытая вкладка могла бы
+    // резолвить approval'ы). Не-браузерные localhost-клиенты (нет Origin/Sec-Fetch) — пропускаем
+    // (это заявленная localhost-модель доверия). Вебхуки `/api/hooks/*` исключены — у них HMAC.
+    if (method !== "GET" && method !== "HEAD" && !path.startsWith("/api/hooks/")) {
+      const sfs = String(req.headers["sec-fetch-site"] || "");
+      const origin = String(req.headers["origin"] || "");
+      let crossOrigin = false;
+      if (sfs && sfs !== "same-origin" && sfs !== "same-site" && sfs !== "none") crossOrigin = true;
+      if (origin) {
+        try { if (new URL(origin).host.toLowerCase() !== hostHdr) crossOrigin = true; }
+        catch { crossOrigin = true; }
+      }
+      if (crossOrigin) { sendJson(res, 403, { error: "cross_origin_forbidden" }); return; }
+    }
+
     try {
       // GET / → serve the UI
       if (method === "GET" && (path === "/" || path === "/index.html")) {
