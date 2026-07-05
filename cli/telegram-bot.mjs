@@ -1078,8 +1078,9 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     // Команды Nabu (/nabu-ask, /nabu-council, /nabu-tasks, …) — форвардим адъютанту как намерение:
     // headless-claude НЕ исполняет плагин-слэш-команды через -p, но адъютант знает их и выполняет
     // суть своими инструментами. CLI-only команды он коротко пояснит.
-    if (cmd.startsWith("/nabu-") || cmd.startsWith("/nabu")) {
-      const name = cmd.replace(/^\//, "");
+    if (cmd.startsWith("/nabu")) {
+      // Нормализуем: /nabu_tasks (из меню) и /nabu-tasks (ручной ввод) → команда nabu-tasks.
+      const name = cmd.replace(/^\//, "").replace(/_/g, "-");
       const argStr = text.trim().slice(cmd.length).trim();
       const intent =
         `Пользователь вызвал команду Nabu «${name}»` + (argStr ? ` с аргументами: ${argStr}` : "") + ".\n" +
@@ -1252,18 +1253,21 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
 
   // Меню команд Telegram (кнопка «/» в чате) — чтобы команды Nabu были видны и подсказывались.
   async function registerCommands() {
+    // Telegram допускает в именах команд только [a-z0-9_] (дефис = BOT_COMMAND_INVALID).
+    // Поэтому меню — с подчёркиваниями; при вызове нормализуем «_»→«-» к реальным командам Nabu.
+    // Набрать вручную можно и через дефис (/nabu-tasks) — текст всё равно доходит и форвардится.
     const commands = [
       { command: "help", description: "Список команд и возможностей" },
-      { command: "nabu-tasks", description: "Задачи и дела" },
-      { command: "nabu-ask", description: "Вопрос Совету" },
-      { command: "nabu-council", description: "Созвать Совет по сложному вопросу" },
-      { command: "nabu-decide", description: "Помочь принять решение" },
-      { command: "nabu-recall", description: "Поднять из памяти" },
-      { command: "nabu-digest", description: "Сводка-дайджест" },
-      { command: "nabu-research", description: "Исследовать тему (веб)" },
-      { command: "nabu-metrics", description: "Метрики и прогресс" },
-      { command: "nabu-triage", description: "Разобрать входящее/приоритеты" },
-      { command: "nabu-agents", description: "Кто в Совете" },
+      { command: "nabu_tasks", description: "Задачи и дела" },
+      { command: "nabu_ask", description: "Вопрос Совету" },
+      { command: "nabu_council", description: "Созвать Совет по сложному вопросу" },
+      { command: "nabu_decide", description: "Помочь принять решение" },
+      { command: "nabu_recall", description: "Поднять из памяти" },
+      { command: "nabu_digest", description: "Сводка-дайджест" },
+      { command: "nabu_research", description: "Исследовать тему (веб)" },
+      { command: "nabu_metrics", description: "Метрики и прогресс" },
+      { command: "nabu_triage", description: "Разобрать входящее/приоритеты" },
+      { command: "nabu_agents", description: "Кто в Совете" },
       { command: "status", description: "Статус бота" },
       { command: "setup", description: "Создать темы форума" },
       { command: "approvals", description: "Ожидающие подтверждения" },
