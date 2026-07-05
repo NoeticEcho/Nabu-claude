@@ -15,6 +15,28 @@ import { buildDepsOrExit, installGracefulShutdown, ok, degraded, fail, wrap, typ
 const deps = buildDepsOrExit("nabu-pipeline");
 const server = new McpServer({ name: "nabu-pipeline", version: "1.9.0" });
 
+/** true, если URL указывает на loopback/приватный хост (безопасно слать private/vault-текст). */
+function isLocalHost(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  } catch {
+    return false;
+  }
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (host === "::1" || host === "0:0:0:0:0:0:0:1") return true;
+  // IPv4 loopback/приватные + link-local
+  if (/^127\./.test(host)) return true;
+  if (/^10\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  if (/^169\.254\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2[0-9]|3[01])\./.test(host)) return true;
+  // IPv6 ULA (fc00::/7) + link-local (fe80::/10)
+  if (/^f[cd][0-9a-f]{2}:/.test(host)) return true;
+  if (/^fe[89ab][0-9a-f]:/.test(host)) return true;
+  return false;
+}
+
 const visibility = z.enum(["default", "private", "vault"]);
 const TEXT_EXT = new Set([".md", ".markdown", ".txt", ".text"]);
 // Локальное извлечение текста: pdftotext (poppler) для PDF, tesseract (OCR) для изображений.
@@ -348,6 +370,12 @@ reg(
     }
     if (!src) return fail("Передайте text или noteId");
     const base = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
+    // Приватность (аудит R6, M2): этот tool обрабатывает private/vault-текст и обещает «текст НЕ
+    // уходит в облако». Отправляем его ТОЛЬКО на локальный/приватный Ollama. Если OLLAMA_BASE_URL
+    // указывает на публичный хост — отказ (иначе расшифрованный vault ушёл бы наружу молча).
+    if (!isLocalHost(base)) {
+      return fail(`Отказ: OLLAMA_BASE_URL ('${base}') не локальный/приватный. Локальная экстракция private/vault-текста работает только с loopback/приватным Ollama — иначе текст уйдёт наружу.`);
+    }
     const model = process.env.NABU_LOCAL_LLM || "qwen3:4b";
     const prompt =
       "Извлеки из текста сущности и устойчивые факты о пользователе/мире. Ответь ТОЛЬКО валидным JSON вида " +

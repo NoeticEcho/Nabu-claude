@@ -53,6 +53,12 @@ export class KnowledgeRepository {
 
   /** Индексировать один документ: перезаписывает его чанки (идемпотентно по source). */
   async indexDocument(source: string, text: string, visibility: Visibility = "private"): Promise<number> {
+    // Приватность (аудит R6, M1): база знаний — публично-семантический слой (plaintext + эмбеддинг +
+    // векторный поиск). Она НЕ шифрует vault и не может дать vault-гарантии. Поэтому vault сюда не
+    // принимаем — для приватного текста используйте vault-заметки (nabu-memory), не индексацию.
+    if (visibility === "vault") {
+      throw new Error("vault нельзя индексировать в базу знаний (нет шифрования/исключения из поиска). Используйте vault-заметку в nabu-memory.");
+    }
     const ns = await this.ns();
     const chunks = chunkText(text);
     // Сначала считаем ВСЕ эмбеддинги (долгая часть — Ollama), и лишь потом мутируем БД:
@@ -90,7 +96,7 @@ export class KnowledgeRepository {
       `select id, source, chunk_index, content, visibility,
               1 - (embedding <=> $2::vector) as score
        from knowledge_chunk
-       where namespace = $1 and embedding is not null
+       where namespace = $1 and embedding is not null and visibility <> 'vault'
        order by embedding <=> $2::vector
        limit $3`,
       [ns, qEmb, topK],

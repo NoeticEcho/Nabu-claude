@@ -218,8 +218,10 @@ export class MemoryRepository implements MemoryPort {
       emotion: string | null;
       visibility: string;
     }>(
+      // Приватность (аудит R6, M3): vault-эпизоды НЕ отдаём — их `event` это шифртекст, и он
+      // может утечь в нарратив/консолидацию через вызывающего. Как и recall, исключаем vault.
       `select id, event, occurred_at, emotion, visibility from episodic_memory
-       where namespace = $1 ${sinceDays ? "and occurred_at > now() - ($2 || ' days')::interval" : ""}
+       where namespace = $1 and visibility <> 'vault' ${sinceDays ? "and occurred_at > now() - ($2 || ' days')::interval" : ""}
        order by occurred_at desc limit ${sinceDays ? "$3" : "$2"}`,
       sinceDays ? [ns, String(sinceDays), limit] : [ns, limit],
     );
