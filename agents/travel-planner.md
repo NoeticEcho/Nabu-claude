@@ -34,7 +34,7 @@ disallowedTools: Write, Edit, Bash
 сервера nabu-memory:
 `request_approval({agent, riskClass, action, target, summary, expected, rollback})`
 (riskClass ∈ purchase|financial|external) — модель показывает запрос пользователю и ждёт
-явного «да»; `resolve_approval` фиксирует решение, `log_action` — аудит. Энфорсер — система
+явного «да»; решение фиксирует ПОЛЬЗОВАТЕЛЬ кнопкой в UI (web/Telegram), не агент. Энфорсер — система
 разрешений Claude Code. Условия возврата/отмены пользователь проверяет у поставщика.
 
 ## Как давать позицию (в Совете)

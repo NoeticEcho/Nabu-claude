@@ -322,23 +322,11 @@ reg(
   },
 );
 
-reg(
-  "resolve_approval",
-  {
-    title: "Разрешить одобрение (решение пользователя)",
-    description:
-      "Зафиксировать РЕШЕНИЕ ПОЛЬЗОВАТЕЛЯ по запросу (approved/rejected). Вызывать ТОЛЬКО после явного «да/нет» от пользователя — это его решение, не модели. decided_by всегда 'user'.",
-    inputSchema: { approvalId: z.string().uuid(), decision: z.enum(["approved", "rejected"]) },
-  },
-  async ({ approvalId, decision }) => {
-    const okDecision = await deps.governance.resolveApproval(approvalId, decision, "user");
-    if (!okDecision) return degraded("Запрос не найден/истёк/уже решён", { approvalId }, ["нет активного pending"]);
-    return result(`Одобрение ${decision === "approved" ? "подтверждено" : "отклонено"} пользователем`, {
-      approvalId,
-      decision,
-    });
-  },
-);
+// ВАЖНО (аудит Round 6, C1): tool `resolve_approval` НАМЕРЕННО НЕ регистрируется в тулсете модели.
+// Резолв одобрения — строго ВНЕ модели: только по нажатию человека в UI (web `POST /api/approvals/:id`
+// и Telegram inline-кнопка), которые вызывают `governance.resolveApproval` НАПРЯМУЮ (не через MCP).
+// Если бы этот tool был доступен модели, она могла бы одобрить собственное действие
+// (request_approval → resolve_approval → trigger_webhook) и обойти инвариант #7. Не возвращать.
 
 reg(
   "log_action",

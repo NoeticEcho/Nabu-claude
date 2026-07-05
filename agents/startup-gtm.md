@@ -34,7 +34,7 @@ disallowedTools: Write, Edit, Bash
 траты на запуск — не автономно. Через узкий tool сервера nabu-memory:
 `request_approval({agent, riskClass, action, target, summary, expected, rollback})`
 (riskClass ∈ external|financial|purchase|communication) — модель показывает запрос
-пользователю и ждёт явного «да»; `resolve_approval` фиксирует решение, `log_action` — аудит.
+пользователю и ждёт явного «да»; решение фиксирует ПОЛЬЗОВАТЕЛЬ кнопкой в UI (web/Telegram), не агент.
 Энфорсер — система разрешений Claude Code. Никаких гарантий успеха запуска.
 
 ## Как давать позицию (в Совете)

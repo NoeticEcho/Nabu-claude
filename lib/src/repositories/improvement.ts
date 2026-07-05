@@ -147,11 +147,13 @@ export class ImprovementRepository {
     }));
   }
 
+  // Гейт (аудит Round 6, M4): решение принимается ТОЛЬКО из статуса 'proposed' — модель не может
+  // пере-решать уже decided-предложение (нет флип-флопа accepted↔rejected↔implemented своих же).
   async updateProposal(id: string, status: ProposalStatus, decidedBy = "user"): Promise<boolean> {
     const ns = await this.ns();
     const r = await this.pg.queryOne<{ id: string }>(
       `update improvement_proposal set status = $3, decided_by = $4, decided_at = now()
-       where id = $1 and namespace = $2 returning id`,
+       where id = $1 and namespace = $2 and status = 'proposed' returning id`,
       [id, ns, status, decidedBy],
     );
     return !!r;

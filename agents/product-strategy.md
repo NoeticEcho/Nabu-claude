@@ -34,7 +34,7 @@ disallowedTools: Write, Edit, Bash
 не автономно. Через узкий tool сервера nabu-memory:
 `request_approval({agent, riskClass, action, target, summary, expected, rollback})`
 (riskClass ∈ external|communication) — модель показывает запрос пользователю и ждёт «да»;
-`resolve_approval` фиксирует решение, `log_action` — аудит. Энфорсер — система разрешений Claude Code.
+решение фиксирует ПОЛЬЗОВАТЕЛЬ кнопкой в UI (web/Telegram), не агент. Энфорсер — система разрешений Claude Code.
 
 ## Как давать позицию (в Совете)
 Когда council собирает твою позицию, верни структурированно:
