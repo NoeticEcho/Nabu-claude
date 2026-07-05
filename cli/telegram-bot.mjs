@@ -870,8 +870,15 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
 
   // Запустить локальный воркер транскрипции. Контракт: последняя непустая строка stdout — JSON
   // {ok:true,text,language,segments} | {ok:false,error,hint}. Убиваем по общему таймауту (10 мин).
-  function runTranscribe(bin, audioPath) {
+  function runTranscribe(bin, audioPath, durationSec = 0) {
     return new Promise((resolve) => {
+      // Таймаут транскрипции масштабируется по длине аудио (whisper на CPU медленнее realtime).
+      // Раньше переиспользовался общий claude-таймаут 10 мин → длинные записи (17 мин и т.п.) не
+      // успевали. Пол 15 мин, ~×6 от длины, потолок 4 ч; overrides NABU_TRANSCRIBE_TIMEOUT_MS/FACTOR.
+      const FACTOR = Number(process.env.NABU_TRANSCRIBE_FACTOR) || 6;
+      const FLOOR = 15 * 60 * 1000, CAP = 4 * 60 * 60 * 1000;
+      const timeoutMs = Number(process.env.NABU_TRANSCRIBE_TIMEOUT_MS)
+        || Math.min(CAP, Math.max(FLOOR, Math.round((durationSec || 0) * 1000 * FACTOR)));
       const args = [
         join(repoRoot, "scripts", "transcribe.py"),
         audioPath,
@@ -893,8 +900,8 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
       const done = (val) => { if (settled) return; settled = true; clearTimeout(timer); resolve(val); };
       const timer = setTimeout(() => {
         try { child.kill("SIGKILL"); } catch {}
-        done({ ok: false, error: "транскрипция превысила лимит 10 минут", hint: "разбейте аудио на части" });
-      }, CHILD_TIMEOUT_MS);
+        done({ ok: false, error: `транскрипция не уложилась в лимит ${Math.round(timeoutMs/60000)} мин (аудио ~${Math.round((durationSec||0)/60)} мин, модель ${process.env.WHISPER_MODEL || "small"} на CPU)`, hint: "поднимите NABU_TRANSCRIBE_TIMEOUT_MS/FACTOR, возьмите модель поменьше (WHISPER_MODEL=base) или разбейте аудио" });
+      }, timeoutMs);
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (c) => { stdout += c; });
       child.stderr.setEncoding("utf8");
@@ -944,7 +951,7 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
       const filePath = got?.result?.file_path;
       if (!filePath) throw new Error("Telegram не отдал файл (вероятно, больше 20 МБ — лимит Bot API на скачивание). Пришлите короче или голосовым сообщением.");
       audioPath = await downloadVoice(filePath);
-      const res = await runTranscribe(bin, audioPath);
+      const res = await runTranscribe(bin, audioPath, duration ?? 0);
       // tmp больше не нужен ни при успехе, ни при отказе — удаляем сразу.
       try { unlinkSync(audioPath); } catch {}
       audioPath = null;
