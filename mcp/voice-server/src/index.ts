@@ -15,7 +15,7 @@ hydrateEnv(); // подхватить .env (WHISPER_MODEL и т.д.) без PG-�
 const WHISPER_MODEL = process.env.WHISPER_MODEL ?? "large-v3";
 const WORKER = join(REPO_ROOT_PATH, "scripts", "transcribe.py");
 
-const server = new McpServer({ name: "nabu-voice", version: "1.10.0" });
+const server = new McpServer({ name: "nabu-voice", version: "1.11.0" });
 
 // Единый контракт результата — из @nabu/lib. Адаптер к явному status у voice.
 function result(status: "ok" | "degraded" | "error", summary: string, data: unknown, warnings: string[] = []) {

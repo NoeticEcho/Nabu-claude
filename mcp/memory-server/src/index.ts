@@ -10,7 +10,7 @@ import { buildDepsOrExit, installGracefulShutdown, ok, degraded, wrap, type McpT
 
 const deps = buildDepsOrExit("nabu-memory");
 
-const server = new McpServer({ name: "nabu-memory", version: "1.10.0" });
+const server = new McpServer({ name: "nabu-memory", version: "1.11.0" });
 
 const visibility = z.enum(["default", "private", "vault"]);
 
