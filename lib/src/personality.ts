@@ -24,6 +24,11 @@ export interface Guardrails {
   [k: string]: unknown;
 }
 
+// Полы черт (инвариант #5): ни один агент не рендерится ниже базовой честности/доброты.
+// Единый источник — здесь; переопределяются NABU_MIN_HONESTY / NABU_MIN_KINDNESS.
+const MIN_HONESTY = Math.max(0, Math.min(10, Number(process.env.NABU_MIN_HONESTY) || 8));
+const MIN_KINDNESS = Math.max(0, Math.min(10, Number(process.env.NABU_MIN_KINDNESS) || 6));
+
 /** Диапазонный выбор для шкал 0–10 (hi ≥8, mid 4–7, lo 0–3). */
 function band(v: number, hi: string, mid: string, lo: string): string {
   if (v >= 8) return hi;
@@ -55,10 +60,13 @@ export function renderTraits(t: Partial<Traits>): string[] {
   d.push(band(g("formality"), "formality: формальный регистр.", "formality: нейтральный регистр.", "formality: разговорный регистр."));
   d.push(g("humor") >= 6 ? "humor: допускай уместный юмор." : g("humor") >= 3 ? "humor: юмор редко." : "humor: без юмора.");
   d.push(band(g("risk_tolerance"), "risk_tolerance: предлагай смелые варианты (с оговорками).", "risk_tolerance: сбалансированные варианты.", "risk_tolerance: консервативные, проверенные варианты."));
-  // honesty/kindness — с порогами
-  const honesty = g("honesty", 10);
-  d.push(`honesty (${honesty}, порог ≥8): говори правду, признавай неуверенность и ошибки, не приукрашивай.`);
-  d.push(band(g("kindness"), "kindness: тёплая, заботливая подача.", "kindness: вежливо-нейтрально.", "kindness: держи доброжелательность на разумном уровне."));
+  // honesty/kindness — с ЖЁСТКИМИ порогами (инвариант #5, аудит R6): черты профиля клампуются
+  // снизу к полу, чтобы ни один агент не рендерился ниже базовой честности/доброты. Пол в коде —
+  // единый источник (не полагаемся на наличие min_* в каждом из 24 профилей).
+  const honesty = Math.max(g("honesty", 10), MIN_HONESTY);
+  d.push(`honesty (${honesty}, порог ≥${MIN_HONESTY}): говори правду, признавай неуверенность и ошибки, не приукрашивай.`);
+  const kindness = Math.max(g("kindness", 5), MIN_KINDNESS);
+  d.push(band(kindness, "kindness: тёплая, заботливая подача.", "kindness: вежливо-нейтрально, но всегда доброжелательно.", `kindness (порог ≥${MIN_KINDNESS}): держи доброжелательность не ниже базового уровня — не холодно, не пренебрежительно.`));
   return d;
 }
 
