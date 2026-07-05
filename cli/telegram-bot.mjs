@@ -132,7 +132,9 @@ function readState(nabuHome) {
 function writeState(nabuHome, state) {
   const { dir, file } = statePaths(nabuHome);
   mkdirSync(dir, { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
+  // uniq tmp = pid+uuid: persist() зовётся из ПАРАЛЛЕЛЬНЫХ топик-цепочек одного процесса —
+  // pid-only tmp → две записи в один tmp → битый telegram-state.json/потерянный offset (R6-M13).
+  const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
   writeFileSync(tmp, JSON.stringify(state, null, 2));
   renameSync(tmp, file); // атомарная замена в пределах ФС
 }

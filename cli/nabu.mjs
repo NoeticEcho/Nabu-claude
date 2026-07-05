@@ -20,7 +20,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, openSync, closeSync, renameSync, unlinkSync, readdirSync, appendFileSync, statSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { homedir, platform } from "node:os";
 import { createServer } from "node:net";
 import { createWriteStream, createReadStream } from "node:fs";
@@ -159,7 +159,9 @@ function detectMode() {
 const composeArgs = (extra, profile = false) => ["compose", "-f", join(REPO_ROOT, "docker-compose.yml"), ...(profile ? ["--profile", "ollama"] : []), ...extra];
 function dockerAvailable() { return has("docker") && sh("docker", ["info"]).code === 0; }
 const readJson = (p, fallback) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return fallback; } };
-function writeJson(p, v) { const t = `${p}.${process.pid}.tmp`; writeFileSync(t, JSON.stringify(v, null, 2)); renameSync(t, p); } // uniq tmp: два процесса (демон+бот) не топчут один файл (r3-M13)
+// uniq tmp = pid+uuid: не топчут файл ни два процесса (демон+бот), ни параллельные fire-and-forget
+// записи В ОДНОМ процессе (job-results/proactivity/schedule-state) — иначе torn-file/ENOENT (R6-M13).
+function writeJson(p, v) { const t = `${p}.${process.pid}.${randomUUID()}.tmp`; writeFileSync(t, JSON.stringify(v, null, 2)); renameSync(t, p); }
 const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 function daemonPid() { const pid = Number(readFileSync(PID_FILE, "utf8").trim() || 0); return pid && pidAlive(pid) ? pid : null; }
 const safeDaemonPid = () => { try { return daemonPid(); } catch { return null; } };
