@@ -1132,6 +1132,49 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
   // ── Документ → сообщение: читаем текст (txt/md/csv/json/код) или pdf (pdftotext) локально ──
   const MAX_DOC_BYTES = 20 * 1024 * 1024;
   const TEXT_EXT = /\.(md|txt|csv|tsv|json|yaml|yml|xml|log|ini|conf|py|js|ts|mjs|sh|html|css|sql|rst|org|tex)$/i;
+  // ZIP → распаковка → ФОНОВАЯ индексация папки в базу знаний с прогрессом в топик. Неблокирующая:
+  // handler возвращается сразу, индексация идёт в фоне (можно параллельно общаться с адъютантом/министрами).
+  async function startZipIndex(msg, zipPath, name) {
+    const base = name.replace(/\.zip$/i, "").replace(/[^\wа-яё .-]/gi, "_") || "import";
+    const dest = join(nabuHome, "imports", `${base}-${Date.now()}`);
+    try {
+      mkdirSync(dest, { recursive: true });
+      const r = spawnSync("unzip", ["-o", "-q", zipPath, "-d", dest], { encoding: "utf8" });
+      if (r.error || r.status !== 0) { await reply(msg, `Не удалось распаковать архив: ${(r.stderr || r.error?.message || "").slice(0, 150)}`); return; }
+    } catch (e) { await reply(msg, `Ошибка распаковки: ${String(e.message).slice(0, 150)}`); return; }
+    finally { try { unlinkSync(zipPath); } catch { /* */ } }
+
+    await reply(msg, `📚 Начал индексацию архива «${name}» в базу знаний. Показываю прогресс здесь; можешь продолжать общаться в это время.`);
+    // Фон: не await — handler отдаёт управление, индексация идёт своим темпом.
+    (async () => {
+      const t0 = Date.now();
+      try {
+        const deps = await getDeps();
+        let lastPush = 0;
+        const res = await runIndexFolder(deps, dest, msg, () => lastPush, (v) => { lastPush = v; });
+        await reply(msg, `✅ Индексация «${name}» завершена: ${res.files} файлов → ${res.chunks} чанков в базе знаний${res.skipped ? `, пропущено ${res.skipped}` : ""}${res.truncated ? ` (усечено до лимита)` : ""}. За ${Math.round((Date.now() - t0) / 1000)} c.`);
+      } catch (e) {
+        log({ evt: "tg_zip_index_error", error: String(e.message).slice(0, 150) });
+        await reply(msg, `Индексация прервалась: ${String(e.message).slice(0, 150)}`);
+      }
+    })().catch(() => {});
+  }
+
+  // Обёртка indexFolder с троттлингом прогресс-пушей (не чаще ~1 раз в 12 c).
+  async function runIndexFolder(deps, dest, msg, getLast, setLast) {
+    const lib = await import(pathToFileURL(join(repoRoot, "lib", "dist", "index.js")).href);
+    return lib.indexFolder(deps.knowledge, dest, {
+      kind: "personal", visibility: "private",
+      onProgress: (p) => {
+        const now = Date.now();
+        if (now - getLast() >= 12000 || p.done === p.total) {
+          setLast(now);
+          reply(msg, `📚 Индексация: ${p.done}/${p.total} файлов · ${p.chunks} чанков…`).catch(() => {});
+        }
+      },
+    });
+  }
+
   async function handleDocument(msg, doc) {
     const t0 = Date.now();
     let path = null;
@@ -1143,6 +1186,12 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
       const fp = got?.result?.file_path;
       if (!fp) { await reply(msg, "Не удалось получить файл из Telegram."); return; }
       path = await downloadVoice(fp); // тот же загрузчик (URL→tmp, лимит), имя не важно
+      // ZIP-архив → распаковать в workspace и запустить ФОНОВУЮ индексацию с прогрессом.
+      if (/\.zip$/i.test(name) || doc.mime_type === "application/zip" || doc.mime_type === "application/x-zip-compressed") {
+        await startZipIndex(msg, path, name);
+        path = null; // startZipIndex сам чистит tmp
+        return;
+      }
       let content = "";
       const isPdf = /\.pdf$/i.test(name) || doc.mime_type === "application/pdf";
       if (isPdf) {

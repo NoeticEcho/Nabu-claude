@@ -1695,6 +1695,46 @@ WantedBy=default.target
   die(`install-service: платформа ${os} не поддерживается`);
 }
 
+// ── Индексация папки/архива в базу знаний (с прогрессом в терминале) ──
+async function cmdIndex(rest, flags) {
+  let target = rest[0];
+  if (!target) die("nabu index <папка|архив.zip> [--domain=<тема> --library]\n  --library — как справочный источник (kind=library); иначе personal (о пользователе)");
+  loadEnvIntoProcess();
+  // ZIP → распаковать в ~/Nabu/imports/<имя>/ и индексировать её.
+  if (/\.zip$/i.test(target)) {
+    const name = target.replace(/.*\//, "").replace(/\.zip$/i, "");
+    const dest = join(NABU_HOME, "imports", name);
+    mkdirSync(dest, { recursive: true });
+    info(`Распаковываю ${target} → ${dest}…`);
+    const r = sh("unzip", ["-o", "-q", resolve(target), "-d", dest]);
+    if (r.code !== 0) die(`unzip не удался: ${(r.errOut || r.out).slice(0, 200)}`);
+    target = dest;
+  }
+  const lib = await import(pathToFileURL(join(REPO_ROOT, "lib", "dist", "index.js")).href);
+  if (!lib.isUnderAllowedRoot(target)) die(`Папка вне песочницы (разрешено: ~ и $NABU_HOME). Задайте NABU_INDEX_ROOTS для расширения.`);
+  const deps = lib.buildDeps();
+  const kind = flags.library ? "library" : "personal";
+  if (kind === "library" && !flags.domain) die("для --library укажите --domain=<тема>");
+  info(`Индексирую ${target} (${kind}${flags.domain ? ", domain=" + flags.domain : ""})…`);
+  let lastLine = 0;
+  try {
+    const res = await lib.indexFolder(deps.knowledge, target, {
+      kind, domain: flags.domain, visibility: kind === "library" ? "default" : "private",
+      onProgress: (p) => {
+        const now = Date.now();
+        if (now - lastLine > 500 || p.done === p.total) { // не спамим терминал
+          lastLine = now;
+          process.stdout.write(`\r  ${p.done}/${p.total} файлов · ${p.chunks} чанков · ${p.skipped} пропущено   `);
+        }
+      },
+    });
+    process.stdout.write("\n");
+    ok(`Готово: ${res.files} файлов → ${res.chunks} чанков в базу знаний (${res.skipped} пропущено${res.truncated ? `, усечено до ${5000} файлов` : ""}).`);
+  } finally {
+    await deps.pg?.close?.();
+  }
+}
+
 // ── Библиотека знаний (Q2): reference-источники (книги/URL) отдельно от памяти о пользователе ──
 async function cmdLibrary(rest, flags) {
   const sub = rest[0];
@@ -1835,6 +1875,7 @@ switch (cmd) {
   }
   case "schedule": cmdSchedule(rest); break;
   case "install-service": cmdInstallService(); break;
+  case "index": await cmdIndex(rest, flags); break;
   case "library": case "lib": await cmdLibrary(rest, flags); break;
   case "import-health": await cmdImportHealth(rest, flags); break;
   case "import-finance": await cmdImportFinance(rest, flags); break;

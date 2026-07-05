@@ -1,5 +1,6 @@
 // Публичный API @nabu/lib — импортируется MCP-серверами и батч-скриптами.
 
+export * from "./folder-index.js";
 export * from "./config.js";
 export * from "./types.js";
 export * from "./ports.js";
