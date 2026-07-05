@@ -92,4 +92,47 @@ export class DeliberationRepository {
       deliberationId,
     ]);
   }
+
+  /** Недавние совещания Совета с синтезом — «прошлые наработки» для подъёма в новый разговор.
+   *  read-only: адъютант поднимает их автономно, без интерактивного подтверждения. */
+  async listRecent(limit = 10): Promise<
+    Array<{
+      id: string;
+      question: string;
+      status: string;
+      createdAt: string;
+      synthesis: string | null;
+      tradeoffs: string | null;
+      decision: string | null;
+    }>
+  > {
+    const ns = await this.ns();
+    const rows = await this.pg.query<{
+      id: string;
+      question: string;
+      status: string;
+      created_at: string;
+      synthesis: string | null;
+      tradeoffs: string | null;
+      decision: string | null;
+    }>(
+      `select d.id, d.question, d.status, d.created_at,
+              s.synthesis, s.tradeoffs, s.decision
+         from deliberation d
+         left join deliberation_synthesis s on s.deliberation_id = d.id
+        where d.namespace = $1
+        order by d.created_at desc
+        limit $2`,
+      [ns, Math.min(Math.max(limit, 1), 50)],
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      question: r.question,
+      status: r.status,
+      createdAt: r.created_at,
+      synthesis: r.synthesis,
+      tradeoffs: r.tradeoffs,
+      decision: r.decision,
+    }));
+  }
 }

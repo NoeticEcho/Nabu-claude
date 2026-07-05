@@ -99,6 +99,21 @@ reg(
   },
 );
 
+reg(
+  "list_deliberations",
+  {
+    title: "Прошлые наработки Совета",
+    description:
+      "Недавние совещания Совета с их синтезом, trade-off'ами и решениями — чтобы поднять прошлые наработки в новый разговор. READ-ONLY: выполняется автономно, БЕЗ интерактивного подтверждения прав.",
+    inputSchema: { limit: z.number().int().min(1).max(50).default(10) },
+    annotations: { readOnlyHint: true },
+  },
+  async ({ limit }) => {
+    const items = await deps.deliberation.listRecent(limit);
+    return result(`Прошлых совещаний: ${items.length}`, { deliberations: items });
+  },
+);
+
 // ── Кросс-доменные консультации: ЛЮБОЙ агент может запросить экспертизу другого домена ──
 const consultDomain = z.enum([
   "health", "mind", "finance", "work", "learning",

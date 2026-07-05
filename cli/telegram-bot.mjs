@@ -695,10 +695,24 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
 
     const sessionKey = threadId != null ? String(threadId) : "main";
     let prompt = text;
+
+    // Reply/цитата: пользователь ответил на сообщение (выделил как reply). Даём модели контекст —
+    // что именно цитируется, и от кого (адъютант/Совет vs сам пользователь).
+    const rt = msg.reply_to_message;
+    // msg.quote — конкретный выделенный фрагмент (новая фича Telegram); иначе — весь текст.
+    const quoted = (msg.quote?.text || rt?.text || rt?.caption || "").trim();
+    if (quoted) {
+      const fromBot = rt?.from?.is_bot === true;
+      const who = fromBot ? "твоё предыдущее сообщение (Nabu/Совет)" : "своё прежнее сообщение";
+      const q = quoted.length > 1500 ? quoted.slice(0, 1500) + "…" : quoted;
+      prompt =
+        `[Пользователь отвечает на ${who}, цитируя:]\n«${q}»\n\n[Его сообщение по этой цитате:]\n${text}`;
+    }
+
     if (MINISTER_SLUGS.has(role)) {
       prompt =
         `Вопрос адресован министру «${role}». Подними субагента ${role} (или ответь в его роли и границах компетенции) и дай его ответ пользователю.\n\n` +
-        text;
+        prompt;
     }
     await runAgent(msg, prompt, sessionKey, role, { ...opts, originalText: text });
   }
