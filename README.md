@@ -52,6 +52,7 @@ schemas, pulls the embedding model and runs a smoke test. Idempotent — run it 
 | 📱 **Telegram client** | Optional. A forum group with topics: **📥 Inbox** (dump thoughts — they become notes), **🎖 Adjutant** (main dialogue), one topic per minister. Voice messages are transcribed **locally** (Whisper). Answers stream live. |
 | 🏛 **The Council** | Multi-domain questions convene relevant ministers; they debate (Agent Teams), a facilitator synthesises the answer **with trade-offs exposed**, a critic checks safety boundaries. |
 | 🧠 **7 kinds of memory** | Episodic, semantic, working, procedural, prospective, autobiographical, associative — in Postgres/pgvector + a TypeDB knowledge graph. |
+| 📚 **Reference library** | Add books, docs and URLs that are **not about you** (a CBT manual, a UI/UX book, a database of draft laws) as domain-scoped reference knowledge (`kind=library`), kept separate from your personal memory. Agents search it as their own reference; a curator can distill reusable **skills** and even spawn a domain expert (e.g. law → a lawmaker agent). See [docs/LIBRARY.md](docs/LIBRARY.md). |
 | 📊 **Dashboard** | Notes, memories, graph, council activity, life domains, RPG-style XP, 14-day dynamics, metric forecasts — in chat (`📊`) and terminal (`nabu stats`). |
 | ⏰ **Scheduler** | Daily inbox triage, weekly digests, feedback follow-ups — headless agent runs whose results are **pushed to you** in Telegram. |
 | 💾 **Backups** | `nabu backup`: Postgres dump + TypeDB volume + workspace, retention 7, schedulable. |

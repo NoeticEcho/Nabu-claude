@@ -10,6 +10,7 @@
   ],
   "commands": [
     "commands/nabu-index.md",
+    "commands/nabu-library.md",
     "commands/nabu-ask.md",
     "commands/nabu-council.md",
     "commands/nabu-decide.md",

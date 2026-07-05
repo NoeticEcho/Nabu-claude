@@ -505,6 +505,11 @@
       "agent": "builder",
       "role": "Оркестратор созидания: координирует entrepreneurship→software-dev→web-dev→copywriting и Совет для создания/запуска продукта/бизнеса/сайта. Высокорисковое — через approval.",
       "impl": "agent:builder"
+    },
+    {
+      "agent": "library-curator",
+      "role": "Куратор библиотеки знаний (kind=library): дистиллирует actionable-навыки из справочных доменов (search_knowledge kind=library), предлагает skill; при широкой потребности — нового доменного агента через agent-creator (напр. law→законотворец). Не пишет файлы (адъютант после critic).",
+      "impl": "agent:library-curator"
     }
   ],
   "specialists": [

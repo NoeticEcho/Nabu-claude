@@ -22,6 +22,7 @@
 - `07_nabu_data_model` — модель данных
 - `08_nabu_api_spec` — спецификация API
 - `09_nabu_agent_catalog` — каталог 44 агентов
+- `LIBRARY` — библиотека справочных знаний (reference): домены, отличие от личной памяти, дистилляция навыков
 - `10_nabu_test_strategy` — стратегия тестирования
 - `11_nabu_security` — безопасность и приватность
 - `12_nabu_ops_runbook` — операционный runbook
