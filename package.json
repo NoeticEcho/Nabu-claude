@@ -1,6 +1,6 @@
 {
   "name": "nabu-claude",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "private": true,
   "description": "Nabu-claude — ИИ-Совет для всех сфер жизни внутри Claude Code. Общая БД с основным Nabu или standalone docker-стек (zero-config).",
   "type": "module",

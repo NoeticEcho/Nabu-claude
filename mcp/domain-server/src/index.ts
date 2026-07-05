@@ -10,7 +10,7 @@ import { z } from "zod";
 import { buildDepsOrExit, installGracefulShutdown, ok, degraded, fail, wrap, loadCalendars , resolveLiveConfig, QUALITATIVE_CAP } from "@nabu/lib";
 
 const deps = buildDepsOrExit("nabu-domain");
-const server = new McpServer({ name: "nabu-domain", version: "1.8.1" });
+const server = new McpServer({ name: "nabu-domain", version: "1.8.2" });
 // Единый контракт результата — из @nabu/lib (ok/fail/wrap), без локальных копий.
 
 // ── Проекты ──
