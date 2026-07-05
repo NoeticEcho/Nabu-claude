@@ -1067,7 +1067,7 @@ function createRequestHandler(opts) {
       // GET /api/file?name=<f> — скачать файл верхнего уровня workspace (безопасно: без ../, без точечных).
       if (method === "GET" && path === "/api/file") {
         const name = url.searchParams.get("name") || "";
-        if (!name || name.includes("/") || name.includes("..") || name.startsWith(".")) { sendJson(res, 400, { error: "bad_name" }); return; }
+        if (!name || name.includes("/") || name.includes("\\") || name.includes("..") || name.startsWith(".")) { sendJson(res, 400, { error: "bad_name" }); return; }
         const fp = join(opts.nabuHome, name);
         try {
           const buf = readFileSync(fp);

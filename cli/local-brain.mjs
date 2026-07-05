@@ -28,14 +28,6 @@ const TOOL_ALLOWLIST = new Set(
   (process.env.NABU_BRAIN_TOOLS ? process.env.NABU_BRAIN_TOOLS.split(",").map((s) => s.trim()) : CORE_TOOLS)
     .filter((t) => !BRAIN_DENYLIST.has(t)),
 );
-const LEGACY_FULL_ALLOWLIST = new Set([
-  "recall", "remember_episode", "add_fact", "list_prospective", "add_prospective",
-  "list_recent_episodes", "graph_neighbors",
-  "list_tasks", "add_task", "update_task_status", "list_projects", "list_goals",
-  "list_habits", "log_habit", "list_quests", "get_character", "list_calendar", "log_metric",
-  "search_knowledge", "list_notes",
-  "list_metrics", "aggregate_metric",
-]);
 const BRAIN_SERVERS = ["nabu-memory", "nabu-domain", "nabu-pipeline", "nabu-analytics"];
 
 const SYSTEM_PROMPT = `Ты — локальный резервный адъютант Nabu (облачный мозг недоступен). Работаешь ОФЛАЙН на локальной модели с ограниченным набором инструментов.

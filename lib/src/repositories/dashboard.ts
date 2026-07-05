@@ -3,6 +3,7 @@
 // `nabu stats` и любые будущие панели. Ошибки отдельных секций НЕ роняют весь обзор.
 
 import type { Postgres } from "../db/postgres.js";
+import { XP_ATTRS } from "../rpg.js";
 import type { GraphClient } from "../db/typedb.js";
 
 export interface DashboardOverview {
@@ -32,7 +33,7 @@ export interface DashboardOverview {
   daily: Array<{ day: string; episodes: number; facts: number; chunks: number; metrics: number }>;
 }
 
-const XP_ATTRS = ["intellect", "wisdom", "creativity", "discipline", "vitality", "resilience", "sociality", "wealth"] as const;
+// XP_ATTRS — единый источник в rpg.ts (аудит R6): не дублируем список атрибутов.
 
 export class DashboardRepository {
   private nsId: string | null = null;

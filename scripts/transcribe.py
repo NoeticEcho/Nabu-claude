@@ -5,7 +5,7 @@
 в stdout: {"ok": true, "text": ..., "language": ..., "segments": N} или {"ok": false, "error": ...}.
 
 Использование: python3 transcribe.py <audio_path> [model] [language]
-  model    — faster-whisper модель (по умолчанию large-v3)
+  model    — faster-whisper модель (по умолчанию small)
   language — код языка или 'auto'
 """
 import json
