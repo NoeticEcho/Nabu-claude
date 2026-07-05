@@ -52,23 +52,7 @@ const STREAM_MIN_DELTA = 40; // и только если накопилось �
 const TG_RETRY_MAX_S = 30; // потолок ожидания по 429 retry_after
 
 // Тот же узкий allowlist, что и в chat-server: MCP Nabu + чтение + субагенты.
-const ALLOWED_TOOLS = [
-  "mcp__nabu-memory",
-  "mcp__nabu-pipeline",
-  "mcp__nabu-council",
-  "mcp__nabu-domain",
-  "mcp__nabu-analytics",
-  "mcp__nabu-improve",
-  "mcp__nabu-voice",
-  "mcp__nabu-connect",
-  "WebSearch",
-  "WebFetch",
-  "Read",
-  "Write",
-  "Glob",
-  "Grep",
-  "Task",
-].join(",");
+import { ALLOWED_TOOLS, ISOLATION_ARGS } from "./claude-run.mjs";
 
 // Темы форума: роль → заголовок. Порядок = порядок создания в /setup.
 const MINISTERS = [
@@ -232,7 +216,7 @@ function runClaude({ claudeBin, repoRoot, text, resumeSessionId, mcpConfigPath, 
     // Изоляция: только Nabu. --strict-mcp-config — лишь наши MCP-серверы; --setting-sources
     // project,local — грузим ТОЛЬКО настройки репо (Nabu), НЕ user-global (где включён внешний
     // claude-mem и прочие плагины/хуки). Память пользователя оркеструет исключительно Nabu.
-    args.push("--strict-mcp-config", "--setting-sources", "project,local");
+    args.push(...ISOLATION_ARGS);
 
     let child;
     try {

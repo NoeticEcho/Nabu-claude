@@ -18,23 +18,7 @@ import { dirname, join } from "node:path";
 import { allSharedConvs, isSharedConv, convTitle, roleOfConv } from "./conversations.mjs";
 
 const CHILD_TIMEOUT_MS = 10 * 60 * 1000; // kill a stuck Claude after 10 minutes
-const ALLOWED_TOOLS = [
-  "mcp__nabu-memory",
-  "mcp__nabu-pipeline",
-  "mcp__nabu-council",
-  "mcp__nabu-domain",
-  "mcp__nabu-analytics",
-  "mcp__nabu-improve",
-  "mcp__nabu-voice",
-  "mcp__nabu-connect",
-  "WebSearch",
-  "WebFetch",
-  "Read",
-  "Write",
-  "Glob",
-  "Grep",
-  "Task",
-].join(",");
+import { ALLOWED_TOOLS, ISOLATION_ARGS } from "./claude-run.mjs";
 
 // ---------------------------------------------------------------------------
 // Структурированный JSONL-лог (${nabuHome}/.nabu/logs/chat.jsonl, ротация 5МБ).
@@ -411,7 +395,7 @@ function runClaudeExchange({ res, claudeBin, repoRoot, message, resumeSessionId,
     if (mcpConfigPath) args.push("--mcp-config", mcpConfigPath);
     args.push("--allowedTools", ALLOWED_TOOLS);
     // Изоляция от внешних плагинов/хуков (claude-mem и др.): только Nabu (см. telegram-bot).
-    args.push("--strict-mcp-config", "--setting-sources", "project,local");
+    args.push(...ISOLATION_ARGS);
 
     let child;
     try {

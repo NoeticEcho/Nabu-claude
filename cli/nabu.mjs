@@ -59,7 +59,7 @@ const CHAT_PORT = Number(process.env.NABU_CHAT_PORT || 4517);
 const DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001";
 const EMBED_MODEL = "nomic-embed-text-v2-moe:latest";
 // Узкий allowlist для headless-запусков claude (чат/расписание): MCP Nabu + чтение + субагенты.
-const ALLOWED_TOOLS = "mcp__nabu-memory,mcp__nabu-pipeline,mcp__nabu-council,mcp__nabu-domain,mcp__nabu-analytics,mcp__nabu-improve,mcp__nabu-voice,mcp__nabu-connect,WebSearch,WebFetch,Read,Write,Glob,Grep,Task";
+import { ALLOWED_TOOLS } from "./claude-run.mjs";
 
 // ── утилиты ──
 const IS_WIN = platform() === "win32";
