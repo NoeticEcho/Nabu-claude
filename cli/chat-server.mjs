@@ -18,7 +18,7 @@ import { dirname, join } from "node:path";
 import { allSharedConvs, isSharedConv, convTitle, roleOfConv } from "./conversations.mjs";
 
 const CHILD_TIMEOUT_MS = 10 * 60 * 1000; // kill a stuck Claude after 10 minutes
-import { ALLOWED_TOOLS, ISOLATION_ARGS } from "./claude-run.mjs";
+import { buildClaudeArgs, makeNdjsonParser } from "./claude-run.mjs";
 
 // ---------------------------------------------------------------------------
 // Структурированный JSONL-лог (${nabuHome}/.nabu/logs/chat.jsonl, ротация 5МБ).
@@ -384,18 +384,8 @@ function extractToolNames(event) {
  */
 function runClaudeExchange({ res, claudeBin, repoRoot, message, resumeSessionId, threadId = null, mcpConfigPath = null, extraEnv = {}, cwd = null, captureFiles = null }) {
   return new Promise((resolve) => {
-    const args = [
-      "-p",
-      message, // passed as a distinct argv element — no shell, no injection
-      "--output-format",
-      "stream-json",
-      "--verbose",
-    ];
-    if (resumeSessionId) args.push("--resume", resumeSessionId);
-    if (mcpConfigPath) args.push("--mcp-config", mcpConfigPath);
-    args.push("--allowedTools", ALLOWED_TOOLS);
-    // Изоляция от внешних плагинов/хуков (claude-mem и др.): только Nabu (см. telegram-bot).
-    args.push(...ISOLATION_ARGS);
+    // Общая сборка args (M16) + изоляция + --plugin-dir repoRoot (M6): плагин из репо, cwd=workspace.
+    const args = buildClaudeArgs({ text: message, resumeSessionId, mcpConfigPath, repoRoot });
 
     let child;
     try {
@@ -414,7 +404,6 @@ function runClaudeExchange({ res, claudeBin, repoRoot, message, resumeSessionId,
     let sessionId = resumeSessionId || null;
     let sawResult = false;
     let settled = false;
-    let stdoutBuf = "";
     let stderrTail = "";
     let costUsd = null;
     let errored = false;
@@ -493,27 +482,9 @@ function runClaudeExchange({ res, claudeBin, repoRoot, message, resumeSessionId,
       }
     };
 
+    const parser = makeNdjsonParser(handleEvent);
     child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      stdoutBuf += chunk;
-      let nl;
-      while ((nl = stdoutBuf.indexOf("\n")) !== -1) {
-        const line = stdoutBuf.slice(0, nl).trim();
-        stdoutBuf = stdoutBuf.slice(nl + 1);
-        if (!line) continue;
-        let event;
-        try {
-          event = JSON.parse(line);
-        } catch {
-          continue; // skip unparseable lines
-        }
-        try {
-          handleEvent(event);
-        } catch {
-          // never let a malformed event kill the stream
-        }
-      }
-    });
+    child.stdout.on("data", (chunk) => parser.push(chunk));
 
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => {
@@ -529,13 +500,7 @@ function runClaudeExchange({ res, claudeBin, repoRoot, message, resumeSessionId,
     });
 
     child.on("close", (code) => {
-      // Flush any trailing buffered line.
-      const line = stdoutBuf.trim();
-      if (line) {
-        try {
-          handleEvent(JSON.parse(line));
-        } catch {}
-      }
+      parser.flush(); // добить хвостовое событие без \n
       if (settled) return;
       if (!sawResult) {
         errored = true;
@@ -643,7 +608,7 @@ async function handleChat(req, res, opts) {
   const t0 = Date.now();
   // Профиль треда — ДО первого использования (TDZ-регрессия r3-C2 чинена).
   // Снапшот файлов workspace ДО обмена — поймать созданные адъютантом файлы (отчёты).
-  const wsSnap = () => { try { return new Set(readdirSync(repoRoot).filter((f) => !f.startsWith("."))); } catch { return new Set(); } };
+  const wsSnap = () => { try { return new Set(readdirSync(opts.nabuHome).filter((f) => !f.startsWith("."))); } catch { return new Set(); } };
   const filesBefore = wsSnap();
   const threadProfile = thread.profile || "";
   const profEnv = threadProfile
@@ -654,15 +619,10 @@ async function handleChat(req, res, opts) {
     : {};
   persistMessage(repoRoot, thread.id, "user", message, null, threadProfile); // fire-and-forget
   const captureFiles = () => {
-    const after = new Set(readdirSync(repoRoot).filter((f) => !f.startsWith(".")));
+    const after = new Set(readdirSync(opts.nabuHome).filter((f) => !f.startsWith(".")));
     const isDoc = (f) => /\.(md|txt|csv|json|pdf|html|log|tsv|yaml|yml)$/i.test(f);
-    const fresh = [...after].filter((f) => !filesBefore.has(f) && isDoc(f));
-    const delivered = [];
-    for (const f of fresh.slice(0, 5)) {
-      try { renameSync(join(repoRoot, f), join(opts.nabuHome, f)); } catch { /* оставить где есть */ }
-      delivered.push(f);
-    }
-    return delivered;
+    // Файлы уже в workspace (cwd=nabuHome) — /api/file их отдаёт напрямую, переносить не нужно.
+    return [...after].filter((f) => !filesBefore.has(f) && isDoc(f)).slice(0, 5);
   };
   const { sessionId, costUsd, errored, fullText } = await runClaudeExchange({
     res,
@@ -674,6 +634,7 @@ async function handleChat(req, res, opts) {
     mcpConfigPath: opts.mcpConfigPath,
     extraEnv: profEnv,
     captureFiles,
+    cwd: opts.nabuHome, // M6: адъютант работает в workspace
   });
   let answeredOffline = false;
   if (errored && !fullText && process.env.NABU_OFFLINE_FALLBACK === "1") {

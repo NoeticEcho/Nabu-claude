@@ -26,3 +26,41 @@ export const ALLOWED_TOOLS = [
 // --strict-mcp-config: игнорировать любые MCP из user-global настроек.
 // --setting-sources project,local: НЕ грузить ~/.claude (где включены claude-mem/agentmemory/облако).
 export const ISOLATION_ARGS = ["--strict-mcp-config", "--setting-sources", "project,local"];
+
+// Единая сборка argv для `claude -p` (аудит R6, M16): раньше дублировалась в web и TG мостах и
+// должна была совпадать вручную — дрейф ослаблял бы security-постуру. Один источник.
+// --plugin-dir repoRoot (M6): плагин Nabu грузится ЯВНО из репо, поэтому cwd можно ставить в
+// workspace (~/nabu) — адъютант пишет файлы туда, а не в код-репо, и при этом скилл/агенты на месте.
+export function buildClaudeArgs({ text, resumeSessionId, mcpConfigPath, repoRoot }) {
+  const args = ["-p", text, "--output-format", "stream-json", "--verbose"];
+  if (resumeSessionId) args.push("--resume", resumeSessionId);
+  if (mcpConfigPath) args.push("--mcp-config", mcpConfigPath);
+  args.push("--allowedTools", ALLOWED_TOOLS);
+  args.push(...ISOLATION_ARGS);
+  if (repoRoot) args.push("--plugin-dir", repoRoot);
+  return args;
+}
+
+// Единый разбор NDJSON-потока `--output-format stream-json` (аудит R6, M16): построчный фрейминг
+// был скопирован в оба моста. push(chunk) вызывает onEvent на каждой полной JSON-строке; flush() —
+// на «хвосте» без \n (последнее событие на close). Битая строка/битое событие не роняют разбор.
+export function makeNdjsonParser(onEvent) {
+  let buf = "";
+  const emit = (line) => {
+    if (!line) return;
+    let ev;
+    try { ev = JSON.parse(line); } catch { return; }
+    try { onEvent(ev); } catch { /* одно битое событие не роняет разбор */ }
+  };
+  return {
+    push(chunk) {
+      buf += chunk;
+      let nl;
+      while ((nl = buf.indexOf("\n")) !== -1) {
+        emit(buf.slice(0, nl).trim());
+        buf = buf.slice(nl + 1);
+      }
+    },
+    flush() { emit(buf.trim()); buf = ""; },
+  };
+}
