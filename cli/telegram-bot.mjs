@@ -377,9 +377,10 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
   const threadParams = (msg) => (msg.message_thread_id != null ? { message_thread_id: msg.message_thread_id } : {});
 
   // Отправка ответа: без parse_mode (никаких entity-ошибок), с эхом темы, чанками ≤4000.
-  async function reply(msg, text) {
+  async function reply(msg, text, opts = {}) {
+    const extra = opts.parseMode ? { parse_mode: opts.parseMode } : {};
     for (const c of chunkText(text)) {
-      await tg("sendMessage", { chat_id: msg.chat.id, text: c, ...threadParams(msg) });
+      await tg("sendMessage", { chat_id: msg.chat.id, text: c, ...threadParams(msg), ...extra });
     }
   }
 
@@ -541,6 +542,33 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
       `Готово. Создано тем: ${created.length}${created.length ? " (" + created.join(", ") + ")" : ""}.` +
         (skipped.length ? ` Уже были: ${skipped.length}.` : "") +
         "\n\nПишите в «📥 Входящие» — сохраню как заметку. В «🎖 Адъютант» — обычный диалог. В тему министра — ответ соответствующего эксперта Совета.",
+    );
+  }
+
+  async function handleHelp(msg) {
+    await reply(
+      msg,
+      "🎖 <b>Nabu — команды</b>\n\n" +
+        "Проще всего — просто напишите словами, я адъютант и всё пойму. Команды — ярлыки:\n\n" +
+        "<b>Дела и жизнь</b>\n" +
+        "/nabu-tasks — задачи и дела\n" +
+        "/nabu-ask — вопрос Совету\n" +
+        "/nabu-council — созвать Совет по сложному вопросу\n" +
+        "/nabu-decide — помочь принять решение\n" +
+        "/nabu-triage — разобрать входящее/приоритеты\n\n" +
+        "<b>Память и знания</b>\n" +
+        "/nabu-recall — поднять из памяти\n" +
+        "/nabu-digest — сводка-дайджест\n" +
+        "/nabu-research — исследовать тему (веб)\n" +
+        "/nabu-metrics — метрики и прогресс\n" +
+        "/nabu-agents — кто в Совете\n\n" +
+        "<b>Быстро</b>\n" +
+        "!текст @завтра — быстро добавить задачу\n" +
+        "🎤 голосовое — расшифрую и отвечу · 📎 файл — прочту · фото — распознаю\n\n" +
+        "<b>Управление ботом</b>\n" +
+        "/status · /setup · /approvals · /help\n\n" +
+        "<i>Команды установки/индексации/расписания (nabu-init, nabu-index, nabu-cron) — в десктоп-CLI.</i>",
+      { parseMode: "HTML" },
     );
   }
 
@@ -1046,7 +1074,20 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     if (cmd === "/setup") return handleSetup(msg);
     if (cmd === "/status") return handleStatus(msg);
     if (cmd === "/approvals") return handleApprovals(msg);
-    if (isCommand) { await reply(msg, "Неизвестная команда. Доступно: /start, /setup, /status, /approvals."); return; }
+    if (cmd === "/help" || cmd === "/nabu") return handleHelp(msg);
+    // Команды Nabu (/nabu-ask, /nabu-council, /nabu-tasks, …) — форвардим адъютанту как намерение:
+    // headless-claude НЕ исполняет плагин-слэш-команды через -p, но адъютант знает их и выполняет
+    // суть своими инструментами. CLI-only команды он коротко пояснит.
+    if (cmd.startsWith("/nabu-") || cmd.startsWith("/nabu")) {
+      const name = cmd.replace(/^\//, "");
+      const argStr = text.trim().slice(cmd.length).trim();
+      const intent =
+        `Пользователь вызвал команду Nabu «${name}»` + (argStr ? ` с аргументами: ${argStr}` : "") + ".\n" +
+        `Выполни СУТЬ этой команды средствами Nabu (у тебя есть все инструменты памяти/дел/Совета). ` +
+        `Если это команда только для десктоп-CLI (установка/индексация/расписание/сборка) — коротко скажи, что она выполняется в CLI, и предложи, что можешь сделать здесь.`;
+      return routeText(msg, intent, { commandOrigin: name, originalText: text });
+    }
+    if (isCommand) { await reply(msg, "Неизвестная команда. Команды Nabu пишите как /nabu-… (напр. /nabu-tasks, /nabu-ask, /nabu-council) — /help покажет список. Или просто напишите словами — я адъютант и всё пойму. Управление: /start, /setup, /status, /approvals."); return; }
     if (text) return routeText(msg, text);
     // Голос / аудио / видео-кружок: расшифровать локально и отмаршрутизировать как текст.
     const media = msg.voice || msg.audio || msg.video_note;
@@ -1209,9 +1250,31 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     next.finally(() => { if (chains.get(key) === next) chains.delete(key); });
   }
 
+  // Меню команд Telegram (кнопка «/» в чате) — чтобы команды Nabu были видны и подсказывались.
+  async function registerCommands() {
+    const commands = [
+      { command: "help", description: "Список команд и возможностей" },
+      { command: "nabu-tasks", description: "Задачи и дела" },
+      { command: "nabu-ask", description: "Вопрос Совету" },
+      { command: "nabu-council", description: "Созвать Совет по сложному вопросу" },
+      { command: "nabu-decide", description: "Помочь принять решение" },
+      { command: "nabu-recall", description: "Поднять из памяти" },
+      { command: "nabu-digest", description: "Сводка-дайджест" },
+      { command: "nabu-research", description: "Исследовать тему (веб)" },
+      { command: "nabu-metrics", description: "Метрики и прогресс" },
+      { command: "nabu-triage", description: "Разобрать входящее/приоритеты" },
+      { command: "nabu-agents", description: "Кто в Совете" },
+      { command: "status", description: "Статус бота" },
+      { command: "setup", description: "Создать темы форума" },
+      { command: "approvals", description: "Ожидающие подтверждения" },
+    ];
+    await tg("setMyCommands", { commands }).catch(() => {});
+  }
+
   // ── Long-polling ──
   async function loop() {
     log({ evt: "tg_start", pinned, boundChatId: state.boundChatId });
+    await registerCommands();
     while (!stopped) {
       const body = await tg(
         "getUpdates",
