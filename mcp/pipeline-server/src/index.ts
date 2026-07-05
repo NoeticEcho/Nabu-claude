@@ -71,7 +71,8 @@ const TEXT_EXT = new Set([".md", ".markdown", ".txt", ".text"]);
 // Локальное извлечение текста: pdftotext (poppler) для PDF, tesseract (OCR) для изображений.
 const PDF_EXT = new Set([".pdf"]);
 const OCR_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".tiff"]);
-const BINARY_EXT = new Set([...PDF_EXT, ...OCR_EXT]); // требуют внешнего бинаря для извлечения
+const DOC_EXT = new Set([".docx", ".odt", ".rtf", ".epub"]); // офисные форматы через pandoc/unzip
+const BINARY_EXT = new Set([...PDF_EXT, ...OCR_EXT, ...DOC_EXT]); // требуют внешнего бинаря для извлечения
 const INDEXABLE_EXT = new Set([...TEXT_EXT, ...BINARY_EXT]);
 const MAX_FILES = 500;
 const MAX_FILE_BYTES = 2_000_000;
@@ -110,6 +111,19 @@ function extractText(file: string): { text: string; method: "plain" | "pdftotext
     }
     if (r.status !== 0) return { text: "", method: "tesseract", error: `tesseract вышел с кодом ${r.status}: ${(r.stderr || "").trim()}` };
     return { text: r.stdout || "", method: "tesseract" };
+  }
+  if (DOC_EXT.has(ext)) {
+    const p = spawnSync("pandoc", [file, "-t", "plain", "--wrap=none"], { encoding: "utf8", maxBuffer: EXTRACT_MAX_BUFFER });
+    if (!p.error && p.status === 0 && (p.stdout || "").trim()) return { text: p.stdout.replace(/\n{3,}/g, "\n\n"), method: "plain" };
+    if (ext === ".docx") {
+      const u = spawnSync("unzip", ["-p", file, "word/document.xml"], { encoding: "utf8", maxBuffer: EXTRACT_MAX_BUFFER });
+      if (!u.error && u.status === 0 && u.stdout) {
+        const t = u.stdout.replace(/<w:p[ >]/g, "\n<w:p ").replace(/<\/w:p>/g, "\n").replace(/<[^>]+>/g, "")
+          .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\n{3,}/g, "\n\n").trim();
+        return { text: t, method: "plain" };
+      }
+    }
+    return { text: "", method: "plain", error: "docx/odt/rtf/epub: нужен pandoc (или unzip для docx)" };
   }
   return { text: readFileSync(file, "utf8"), method: "plain" };
 }

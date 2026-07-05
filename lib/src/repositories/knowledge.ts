@@ -40,25 +40,95 @@ export interface KnowledgeSource {
   updatedAt: string;
 }
 
-/** Разбить текст на чанки ~maxChars с перекрытием, по границам абзацев/предложений. */
+/** Разбить текст на предложения (RU/EN). Держит разделитель; грубо не режет по «т.д.», «т.е.», инициалам. */
+export function splitSentences(text: string): string[] {
+  // Маскируем точку в инициалах/сокращениях (\u0000), чтобы не разрывать по ним; \u0001 — разделитель.
+  const masked = text
+    .replace(/\b([\u0410-\u042fA-Z])\.(\s)/g, "$1\u0000$2")
+    .replace(/\b(\u0442\.\u0435|\u0442\.\u0434|\u0442\.\u043f|\u0441\u043c|\u0441\u0442\u0440|\u0440\u0438\u0441|\u0442\u0430\u0431\u043b|\u0434\u0440|\u043f\u0440|\u043d\u0430\u043f\u0440|\u0433\u043b|\u0441\u0442)\.(\s)/gi, (_m, a, sp) => a + "\u0000" + sp);
+  const parts = masked.replace(/([.!?\u2026]+)(\s+|$)/g, "$1\u0001").split("\u0001");
+  return parts.map((s) => s.replace(/\u0000/g, ".").trim()).filter(Boolean);
+}
+
+/**
+ * Разбить текст на чанки ~maxChars, НЕ разрезая предложения. Упаковываем целыми абзацами; абзац
+ * длиннее лимита режем по границам предложений; единственное сверхдлинное предложение — как крайность
+ * режем жёстко. Перекрытие — на уровне предложений (последнее(-ие) предложение(-я) предыдущего чанка
+ * добавляются в начало следующего) для непрерывности контекста.
+ */
 export function chunkText(text: string, maxChars = 1200, overlap = 150): string[] {
-  const clean = text.replace(/\r\n/g, "\n").trim();
-  if (clean.length <= maxChars) return clean ? [clean] : [];
+  const clean = text.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (!clean) return [];
+  if (clean.length <= maxChars) return [clean];
+
   const chunks: string[] = [];
-  let start = 0;
-  while (start < clean.length) {
-    let end = Math.min(start + maxChars, clean.length);
-    if (end < clean.length) {
-      // отступить до ближайшей границы абзаца/предложения/пробела
-      const slice = clean.slice(start, end);
-      const br = Math.max(slice.lastIndexOf("\n\n"), slice.lastIndexOf(". "), slice.lastIndexOf("\n"));
-      if (br > maxChars * 0.5) end = start + br + 1;
+  let cur = "";
+  const flush = (): void => { const t = cur.trim(); if (t) chunks.push(t); cur = ""; };
+  const push = (unit: string, sep = "\n"): void => {
+    if (!unit) return;
+    if (cur.length + unit.length + sep.length <= maxChars) { cur += (cur ? sep : "") + unit; return; }
+    flush();
+    if (unit.length <= maxChars) { cur = unit; return; }
+    // Юнит (абзац) длиннее лимита — упаковываем его предложениями.
+    for (const sent of splitSentences(unit)) {
+      if (cur.length + sent.length + 1 <= maxChars) { cur += (cur ? " " : "") + sent; continue; }
+      flush();
+      if (sent.length <= maxChars) { cur = sent; }
+      else { for (let i = 0; i < sent.length; i += maxChars) chunks.push(sent.slice(i, i + maxChars)); cur = ""; } // сверхдлинное предложение
     }
-    const piece = clean.slice(start, end).trim();
-    if (piece) chunks.push(piece);
-    if (end >= clean.length) break;
-    start = end - overlap;
+  };
+  for (const para of clean.split(/\n{2,}/)) push(para.trim());
+  flush();
+
+  // Перекрытие по предложениям: в начало каждого чанка (кроме первого) — хвост предыдущего.
+  if (overlap > 0) {
+    for (let i = 1; i < chunks.length; i++) {
+      const prev = chunks[i - 1] ?? "", curChunk = chunks[i] ?? "";
+      const sents = splitSentences(prev);
+      let tail = "";
+      for (let j = sents.length - 1; j >= 0 && tail.length < overlap; j--) tail = (sents[j] ?? "") + (tail ? " " + tail : "");
+      if (tail && !curChunk.startsWith(tail)) chunks[i] = `${tail} ${curChunk}`;
+    }
   }
+  return chunks;
+}
+
+/**
+ * Семантический чанкинг (опц., NABU_SEMANTIC_CHUNK=1): группирует предложения по смыслу. Эмбеддит
+ * каждое предложение, начинает новый чанк, когда близость к текущему падает ниже порога ИЛИ размер
+ * превышает лимит. Дороже (эмбеддинг на предложение) — на слабом CPU медленно, поэтому opt-in.
+ */
+export async function semanticChunk(
+  text: string,
+  embedder: { embed(t: string, v?: Visibility): Promise<number[]> },
+  maxChars = 1500,
+): Promise<string[]> {
+  const clean = text.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (clean.length <= maxChars) return clean ? [clean] : [];
+  const sents = splitSentences(clean);
+  if (sents.length <= 1) return chunkText(clean, maxChars);
+  const threshold = Number(process.env.NABU_SEMANTIC_THRESHOLD) || 0.5;
+  const cos = (a: number[], b: number[]): number => {
+    let d = 0, na = 0, nb = 0; const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i++) { const x = a[i] as number, y = b[i] as number; d += x * y; na += x * x; nb += y * y; }
+    return na && nb ? d / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
+  };
+  const chunks: string[] = [];
+  let cur = sents[0] ?? "";
+  let curVec = await embedder.embed(cur, "default");
+  for (let i = 1; i < sents.length; i++) {
+    const s = sents[i] as string;
+    const v = await embedder.embed(s, "default");
+    const sim = cos(curVec, v);
+    if (sim >= threshold && cur.length + s.length + 1 <= maxChars) {
+      cur += " " + s;
+      // скользящий центроид — среднее (грубо), чтобы чанк «держал» общий смысл
+      curVec = curVec.map((x, k) => (x + (v[k] ?? 0)) / 2);
+    } else {
+      chunks.push(cur.trim()); cur = s; curVec = v;
+    }
+  }
+  if (cur.trim()) chunks.push(cur.trim());
   return chunks;
 }
 
@@ -99,7 +169,11 @@ export class KnowledgeRepository {
       throw new Error("vault нельзя индексировать в базу знаний (нет шифрования/исключения из поиска). Используйте vault-заметку в nabu-memory.");
     }
     const ns = await this.ns();
-    const chunks = chunkText(text);
+    // Чанкинг: по умолчанию — по границам предложений/абзацев (предложения не режутся). Опц.
+    // семантический (NABU_SEMANTIC_CHUNK=1): группировка по смыслу через эмбеддинги (дороже).
+    const chunks = process.env.NABU_SEMANTIC_CHUNK === "1"
+      ? await semanticChunk(text, this.embedder)
+      : chunkText(text);
     // Сначала считаем ВСЕ эмбеддинги (долгая часть — Ollama), и лишь потом мутируем БД.
     const vecs: number[][] = [];
     for (const chunk of chunks) vecs.push(await this.embedder.embed(chunk, visibility));

@@ -10,7 +10,8 @@ import type { Visibility } from "./types.js";
 
 const TEXT_EXT = new Set([".md", ".markdown", ".txt", ".text", ".rst", ".org", ".csv", ".json", ".yaml", ".yml"]);
 const PDF_EXT = new Set([".pdf"]);
-const INDEXABLE = new Set([...TEXT_EXT, ...PDF_EXT]);
+const DOC_EXT = new Set([".docx", ".odt", ".rtf", ".epub"]); // офисные форматы через pandoc/unzip
+const INDEXABLE = new Set([...TEXT_EXT, ...PDF_EXT, ...DOC_EXT]);
 const MAX_FILES = Number(process.env.NABU_INDEX_MAX_FILES) || 5000;
 const MAX_FILE_BYTES = Number(process.env.NABU_INDEX_MAX_FILE_BYTES) || 5_000_000;
 
@@ -43,12 +44,29 @@ function collectFiles(root: string): { files: string[]; skipped: number; truncat
   return { files, skipped, truncated };
 }
 
-/** Локально извлечь текст: pdf → pdftotext, прочее → utf8. Пустой текст → пропуск. */
-function extractText(file: string): string {
+/** Локально извлечь текст: pdf → pdftotext; docx/odt/rtf/epub → pandoc (или unzip для docx);
+ *  прочее → utf8. Всё локально, текст не покидает машину. Пустой текст → пропуск. */
+export function extractFileText(file: string): string {
   const ext = extname(file).toLowerCase();
   if (PDF_EXT.has(ext)) {
     const r = spawnSync("pdftotext", ["-layout", file, "-"], { encoding: "utf8", maxBuffer: 50 * 1024 * 1024 });
     return r.error || r.status !== 0 ? "" : (r.stdout || "").replace(/\f/g, "").replace(/\n{3,}/g, "\n\n");
+  }
+  if (DOC_EXT.has(ext)) {
+    // pandoc — лучший вариант (docx/odt/rtf/epub). Fallback для docx: unzip word/document.xml + strip.
+    const p = spawnSync("pandoc", [file, "-t", "plain", "--wrap=none"], { encoding: "utf8", maxBuffer: 50 * 1024 * 1024 });
+    if (!p.error && p.status === 0 && (p.stdout || "").trim()) return p.stdout.replace(/\n{3,}/g, "\n\n");
+    if (ext === ".docx") {
+      const u = spawnSync("unzip", ["-p", file, "word/document.xml"], { encoding: "utf8", maxBuffer: 50 * 1024 * 1024 });
+      if (!u.error && u.status === 0 && u.stdout) {
+        return u.stdout
+          .replace(/<w:p[ >]/g, "\n<w:p ").replace(/<\/w:p>/g, "\n") // абзацы → переводы строк
+          .replace(/<[^>]+>/g, "")
+          .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+          .replace(/\n{3,}/g, "\n\n").trim();
+      }
+    }
+    return ""; // не смогли извлечь — пропуск (с честным skip в вызывающем)
   }
   try { return readFileSync(file, "utf8"); } catch { return ""; }
 }
@@ -67,7 +85,7 @@ export async function indexFolder(
   let done = 0, chunks = 0, skipped = walkSkipped;
   for (const file of files) {
     if (opts.signal?.aborted) break;
-    const text = extractText(file);
+    const text = extractFileText(file);
     if (text.trim()) {
       try {
         chunks += await knowledge.indexDocument(file, text, {
