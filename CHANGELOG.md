@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-07-05
+### Security / Privacy
+- **Демон изолирован от внешних плагинов и облака.** Headless-дети адъютанта наследовали
+  user-global настройки и грузили `claude-mem`, `agentmemory`, `codebase-memory`, `railway` и
+  облачные `claude.ai Google Drive/Gmail/Calendar/Context7` — приватные беседы утекали наружу
+  (нарушение инварианта #2). Оба спавна теперь с `--strict-mcp-config` + `--setting-sources
+  project,local`: грузится ТОЛЬКО Nabu (репо), все внешние плагины/хуки/облако отрезаны. Глобальный
+  сетап пользователя для других проектов не тронут; auth (Max) хранится отдельно и не пострадал.
+### Added
+- **Беседы — первоклассная память Nabu.** После каждого обмена (Telegram + веб) пишется приватный
+  эпизод (`remember_episode`, локальный эмбеддинг) — Совет видит разговоры как настоящую 7-типовую
+  память, без опоры на внешний плагин. Тривиальное/команды пропускаются.
+
 ## [1.8.2] — 2026-07-05
 ### Added
 - **`nabu-council.list_deliberations`** (read-only) — подъём прошлых наработок Совета (совещания с
