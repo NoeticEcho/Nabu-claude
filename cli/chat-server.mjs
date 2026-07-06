@@ -21,6 +21,7 @@ import { allSharedConvs, isSharedConv, convTitle, roleOfConv } from "./conversat
 // вроде консолидации 24 кластеров через субагентов). Настраивается NABU_CLAUDE_TIMEOUT_MS.
 const CHILD_TIMEOUT_MS = Number(process.env.NABU_CLAUDE_TIMEOUT_MS) || 30 * 60 * 1000;
 import { buildClaudeArgs, makeNdjsonParser, withConversationLock, extractAssistantText } from "./claude-run.mjs";
+import { createWebAuth } from "./web-auth.mjs";
 
 // ---------------------------------------------------------------------------
 // Структурированный JSONL-лог (${nabuHome}/.nabu/logs/chat.jsonl, ротация 5МБ).
@@ -100,6 +101,11 @@ function getLibDeps(repoRoot, profile = "") {
       const lib = await import(pathToFileURL(join(repoRoot, "lib", "dist", "index.js")).href);
       lib.hydrateEnv?.();
       const prof = key ? profilesConfig(repoRoot)[key] : null;
+      // OlimpOS P2: ключ-UUID без записи в profiles.json = тенант (web-сессия). Скоуп по u:<userId>.
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key);
+      if (key && !prof && isUuid) {
+        return lib.buildDeps({ namespace: `u:${key}`, userId: key });
+      }
       if (key && !prof) throw new Error(`Профиль '${key}' не найден в config/profiles.json`);
       if (prof && (!prof.namespace || !prof.user_id)) {
         throw new Error(`Профиль '${key}' неполный (нужны namespace И user_id) — nabu profiles add ${key}`);
@@ -611,13 +617,18 @@ async function handleChat(req, res, opts) {
   // Снапшот файлов workspace ДО обмена — поймать созданные адъютантом файлы (отчёты).
   const wsSnap = () => { try { return new Set(readdirSync(opts.nabuHome).filter((f) => !f.startsWith("."))); } catch { return new Set(); } };
   const filesBefore = wsSnap();
-  const threadProfile = thread.profile || "";
-  const profEnv = threadProfile
-    ? (() => {
-        const p = profilesConfig(repoRoot)[threadProfile];
-        return p && p.namespace && p.user_id ? { NABU_NAMESPACE: p.namespace, NABU_USER_ID: p.user_id } : {};
-      })()
-    : {};
+  // OlimpOS P2: в много-тенантном режиме скоуп берём из АУТЕНТИФИЦИРОВАННОЙ сессии (не из body.profile),
+  // иначе пользователь мог бы подставить чужой профиль. Гейт выше уже гарантировал валидную сессию.
+  const sessionTenant = opts.webAuth?.enabled ? opts.webAuth.resolveTenant(req) : null;
+  const threadProfile = sessionTenant ? sessionTenant.userId : (thread.profile || "");
+  const profEnv = sessionTenant
+    ? { NABU_NAMESPACE: sessionTenant.namespace, NABU_USER_ID: sessionTenant.userId }
+    : threadProfile
+      ? (() => {
+          const p = profilesConfig(repoRoot)[threadProfile];
+          return p && p.namespace && p.user_id ? { NABU_NAMESPACE: p.namespace, NABU_USER_ID: p.user_id } : {};
+        })()
+      : {};
   persistMessage(repoRoot, thread.id, "user", message, null, threadProfile); // fire-and-forget
   const captureFiles = () => {
     const after = new Set(readdirSync(opts.nabuHome).filter((f) => !f.startsWith(".")));
@@ -754,6 +765,20 @@ function createRequestHandler(opts) {
         catch { crossOrigin = true; }
       }
       if (crossOrigin) { sendJson(res, 403, { error: "cross_origin_forbidden" }); return; }
+    }
+
+    // OlimpOS P2: аутентификация. Маршруты /api/auth/* обрабатывает web-auth. При NABU_MULTITENANT=1
+    // защищённые API-эндпоинты требуют валидной сессии (иначе 401); GET / (SPA) отдаётся всегда —
+    // клиент сам показывает форму логина. В дефолтном режиме (флаг снят) — прежний localhost-trust.
+    if (opts.webAuth) {
+      if (path.startsWith("/api/auth/")) {
+        try { if (await opts.webAuth.handle(req, res, path, method, () => readRequestBody(req))) return; }
+        catch { if (!res.writableEnded) sendJson(res, 500, { error: "auth_error" }); return; }
+      }
+      if (opts.webAuth.enabled) {
+        const isProtected = path.startsWith("/api/") && !path.startsWith("/api/hooks/");
+        if (isProtected && !opts.webAuth.resolveTenant(req)) { sendJson(res, 401, { error: "auth_required" }); return; }
+      }
     }
 
     try {
@@ -1197,7 +1222,11 @@ export function startChatServer({
     log({ evt: "mcp_config_error", message: e.message });
   }
   log({ evt: "server_start", port, host, mcpConfigPath });
-  const handler = createRequestHandler({ repoRoot, nabuHome, claudeBin, log, mcpConfigPath });
+  // OlimpOS P2: web-auth (сессии/тенант) — активна только при NABU_MULTITENANT=1. Секрет подписи
+  // сессий: NABU_SESSION_SECRET или производный из NABU_VAULT_KEY (стабилен между рестартами инстанса).
+  const sessionSecret = process.env.NABU_SESSION_SECRET || process.env.NABU_VAULT_KEY || "nabu-dev-secret";
+  const webAuth = createWebAuth({ repoRoot, secret: sessionSecret });
+  const handler = createRequestHandler({ repoRoot, nabuHome, claudeBin, log, mcpConfigPath, webAuth });
   const server = createServer(handler);
 
   return new Promise((resolve, reject) => {
