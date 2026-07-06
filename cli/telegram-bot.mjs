@@ -882,7 +882,7 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
   // Bot API Telegram НЕ отдаёт через getFile/download файлы больше 20 МБ — жёсткий лимит.
   // (Обойти можно только локальным Bot API сервером; для нас — честно сообщить пользователю.)
   const TG_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
-  const MAX_AUDIO_BYTES = TG_DOWNLOAD_LIMIT;
+  
   async function downloadVoice(filePath) {
     const ext = filePath.match(/\.[a-z0-9]+$/i)?.[0] || ".oga";
     const tmpDir = join(nabuHome, ".nabu", "tmp");
@@ -892,12 +892,12 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     const r = await fetch(url, { signal: AbortSignal.timeout(30000) });
     if (!r.ok) throw new Error(`скачивание не удалось (HTTP ${r.status})`);
     const declared = Number(r.headers.get("content-length"));
-    if (Number.isFinite(declared) && declared > MAX_AUDIO_BYTES) {
-      throw new Error(`аудио слишком большое (${declared} b > лимит ${MAX_AUDIO_BYTES} b)`);
+    if (Number.isFinite(declared) && declared > TG_DOWNLOAD_LIMIT) {
+      throw new Error(`аудио слишком большое (${declared} b > лимит ${TG_DOWNLOAD_LIMIT} b)`);
     }
     const buf = Buffer.from(await r.arrayBuffer());
-    if (buf.byteLength > MAX_AUDIO_BYTES) {
-      throw new Error(`аудио слишком большое (${buf.byteLength} b > лимит ${MAX_AUDIO_BYTES} b)`);
+    if (buf.byteLength > TG_DOWNLOAD_LIMIT) {
+      throw new Error(`аудио слишком большое (${buf.byteLength} b > лимит ${TG_DOWNLOAD_LIMIT} b)`);
     }
     writeFileSync(dest, buf);
     return dest;

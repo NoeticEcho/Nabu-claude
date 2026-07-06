@@ -204,6 +204,7 @@ export class DomainRepository {
       // Уже было такое же начисляемое событие за этот день? Тогда лог пишем, но XP не дублируем.
       const scored = status === "done" || status === "missed";
       let already = false;
+      let dupId: string | null = null;
       if (scored) {
         const dup = await t.queryOne<{ id: string }>(
           `select id from habit_logs
@@ -212,11 +213,12 @@ export class DomainRepository {
           [habitId, u, occurredOn ?? null, status],
         );
         already = !!dup;
+        dupId = dup?.id ?? null; // R7-E10: возвращаем id СУЩЕСТВУЮЩЕЙ строки, не пустую
       }
       // R6-minor: не плодим дубли лог-строк (портили стрик/историю). Повторная отметка того же
       // дня/статуса — идемпотентна: возвращаем существующую строку, XP не начисляем повторно.
       const r = already
-        ? { id: "" }
+        ? { id: dupId ?? "" }
         : await t.queryOne<{ id: string }>(
             `insert into habit_logs(habit_id, user_id, occurred_on, status)
              values ($1,$2,coalesce($3::date, current_date),$4) returning id`,

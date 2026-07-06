@@ -233,13 +233,21 @@ function threadsPaths(nabuHome) {
 
 async function readThreads(nabuHome) {
   const { file } = threadsPaths(nabuHome);
+  let raw;
   try {
-    const raw = await readFile(file, "utf8");
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    raw = await readFile(file, "utf8");
   } catch (err) {
     if (err && err.code === "ENOENT") return [];
-    // Corrupt/unreadable file: degrade gracefully rather than crash.
+    return []; // нечитаемо — деградируем мягко
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    // R7-E11: файл повреждён. Раньше просто возвращали [] → следующий upsertThread затирал файл
+    // одним тредом, ТЕРЯЯ все прочие. Теперь СНАЧАЛА сохраняем повреждённое содержимое в бэкап
+    // (для ручного восстановления), и только потом деградируем к пустому списку.
+    try { await writeFile(`${file}.corrupt-${process.pid}`, raw, "utf8"); } catch { /* best-effort */ }
     return [];
   }
 }

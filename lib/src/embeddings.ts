@@ -136,10 +136,15 @@ export class Embedder {
         const call = this.provider === "openai"
           ? this.embedOpenAI(inputs, timeoutMs)
           : this.embedOllama(inputs, timeoutMs);
-        return await Promise.race([
-          call,
-          new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`embed hard-timeout (${hardMs}ms)`)), hardMs).unref?.()),
-        ]);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          return await Promise.race([
+            call,
+            new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error(`embed hard-timeout (${hardMs}ms)`)), hardMs); timer.unref?.(); }),
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer); // R7-E7: не оставлять таймер висеть ~125с после успеха
+        }
       } catch (e) {
         lastErr = e;
         if (!isTransient(e) || attempt === tries - 1) throw e;

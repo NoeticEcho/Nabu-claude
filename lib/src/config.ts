@@ -63,10 +63,12 @@ function hydrateEnvFromFile(): void {
   for (const line of readFileSync(envPath, "utf8").split("\n")) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
+    // R7-G10: поддержать `export KEY=value` (иначе ключом становилось "export KEY").
+    const withoutExport = trimmed.startsWith("export ") ? trimmed.slice(7).trim() : trimmed;
+    const eq = withoutExport.indexOf("=");
     if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    let val = trimmed.slice(eq + 1).trim();
+    const key = withoutExport.slice(0, eq).trim();
+    let val = withoutExport.slice(eq + 1).trim();
     if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
       val = val.slice(1, -1);
     }

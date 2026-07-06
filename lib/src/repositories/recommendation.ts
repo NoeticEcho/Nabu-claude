@@ -67,16 +67,6 @@ export class RecommendationRepository {
     return rows.map(this.map);
   }
 
-  async listByDomain(domain: string, limit = 50): Promise<Recommendation[]> {
-    const ns = await this.ns();
-    const rows = await this.pg.query(
-      `select id, source_agent, domain, question, recommendation, status, outcome, outcome_rating, follow_up_at, created_at
-       from recommendation where namespace = $1 and domain = $2 order by created_at desc limit $3`,
-      [ns, domain, limit],
-    );
-    return (rows as never[]).map(this.map);
-  }
-
   /** Зафиксировать исход применённого совета. */
   async recordOutcome(id: string, o: { status: RecommendationStatus; outcome?: string; outcomeRating?: number }): Promise<boolean> {
     const ns = await this.ns();

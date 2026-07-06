@@ -31,7 +31,9 @@ export function fail(summary: string, data: unknown = {}, warnings: string[] = [
   return make("error", summary, data, warnings);
 }
 
-/** Обёртка хендлера: любое исключение → структурированный error, а не сырое MCP-исключение. */
+/** Обёртка хендлера: любое исключение → структурированный error, а не сырое MCP-исключение.
+ *  R7-G6: через Promise.resolve().then(fn) — ловим и СИНХРОННЫЙ throw до возврата промиса
+ *  (иначе он уходил наружу мимо fail(), нарушая контракт «никаких сырых MCP-ошибок»). */
 export function wrap(fn: () => Promise<McpToolResult>): Promise<McpToolResult> {
-  return fn().catch((e) => fail(`Ошибка: ${(e as Error).message ?? String(e)}`));
+  return Promise.resolve().then(fn).catch((e) => fail(`Ошибка: ${(e as Error).message ?? String(e)}`));
 }
