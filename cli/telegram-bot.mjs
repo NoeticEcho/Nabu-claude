@@ -59,6 +59,8 @@ async function resolveTenantEnv(repoRoot, msg, log) {
   if (process.env.NABU_MULTITENANT !== "1") return null;
   const tgId = msg?.from?.id;
   if (!tgId || msg?.from?.is_bot) return null;
+  const chatType = msg?.chat?.type;
+  const senderName = msg.from.first_name || msg.from.username || String(tgId);
   try {
     if (!_tenantLibPg) {
       const lib = await import(pathToFileURL(join(repoRoot, "lib", "dist", "index.js")).href);
@@ -66,8 +68,16 @@ async function resolveTenantEnv(repoRoot, msg, log) {
       _tenantLibPg = { lib, pg: lib.buildDeps().pg };
     }
     const { lib, pg } = _tenantLibPg;
-    const t = await lib.resolveTenantByTelegram(pg, tgId, { displayName: msg.from.first_name || msg.from.username });
-    return t ? { namespace: t.namespace, userId: t.userId } : null;
+    // P3: групповой чат → ОБЩЕЕ проектное пространство (память/задачи скоупятся к проекту, не к личному).
+    if (chatType === "group" || chatType === "supergroup") {
+      const gs = await lib.resolveGroupSpace(pg, msg.chat.id, { name: msg.chat.title, creatorTgId: tgId });
+      const sender = await lib.resolveTenantByTelegram(pg, tgId, { displayName: senderName });
+      if (sender) await lib.addMember(pg, gs.spaceId, sender.userId, "member"); // автор — участник проекта
+      return { namespace: gs.namespace, userId: gs.userId, group: true, senderName };
+    }
+    // Личка → личное пространство пользователя.
+    const t = await lib.resolveTenantByTelegram(pg, tgId, { displayName: senderName });
+    return t ? { namespace: t.namespace, userId: t.userId, group: false, senderName } : null;
   } catch (e) {
     log?.({ evt: "tenant_resolve_error", error: String(e?.message ?? e).slice(0, 140) });
     return null; // fail-safe: без тенанта работаем в дефолтном скоупе (не роняем обмен)
@@ -646,8 +656,10 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     // один conv-<role> (общая сессия/история = утечка). Без флага — прежнее однопользовательское поведение.
     const tenant = await resolveTenantEnv(repoRoot, msg, log);
     const extraEnv = tenant ? { NABU_NAMESPACE: tenant.namespace, NABU_USER_ID: tenant.userId } : undefined;
-    const cid = tenant ? `conv-${role}-${tenant.userId}` : convId(role); // conv-adjutant[-<userId>]
-    const skey = tenant ? `${sessionKey}:${tenant.userId}` : sessionKey;   // сессия per-tenant
+    const cid = tenant ? `conv-${role}-${tenant.userId}` : convId(role); // conv-adjutant[-<userId/projectId>]
+    const skey = tenant ? `${sessionKey}:${tenant.userId}` : sessionKey;   // сессия per-tenant/проект
+    // P3: в групповом проекте атрибутируем реплику автором, чтобы адъютант различал участников.
+    const effPrompt = tenant?.group ? `[Реплика участника проекта «${tenant.senderName}»]\n${prompt}` : prompt;
     // R7-E3: сериализуем обмен по cid (conv-<role>) — общий лок в claude-run.mjs с веб-чатом
     // (тот же процесс демона). Иначе одновременные сообщения web+TG в один разговор спавнили
     // `claude --resume <тот же id>` параллельно → порча файла сессии. result — снаружи (нужен
@@ -669,7 +681,7 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
           claudeBin,
           repoRoot,
           cwd: nabuHome, // M6: адъютант работает в workspace (плагин грузится через --plugin-dir)
-          text: prompt,
+          text: effPrompt,
           resumeSessionId,
           mcpConfigPath,
           extraEnv, // OlimpOS P1: per-tenant scope для MCP (undefined в однопользовательском режиме)
@@ -1137,8 +1149,8 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     // каждая привязывается к своему тенанту по from.id (без единой boundChatId). Группы (не private) —
     // P3, пока по прежним правилам. Без флага — прежняя однопользовательская привязка к одному чату.
     let allowed;
-    if (process.env.NABU_MULTITENANT === "1" && msg.chat.type === "private") {
-      allowed = true;
+    if (process.env.NABU_MULTITENANT === "1" && ["private", "group", "supergroup"].includes(msg.chat.type)) {
+      allowed = true; // P1: личка = свой тенант; P3: группа = общий проектный space (по chat.id)
     } else if (pinned) {
       allowed = chatId === pinnedChatId;
     } else if (state.boundChatId != null) {

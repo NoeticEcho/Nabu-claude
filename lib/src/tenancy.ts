@@ -108,3 +108,68 @@ export async function loginWebUser(pg: Postgres, email: string, password: string
   if (!u || !u.pass_hash || !verifyPassword(password, u.pass_hash)) return null;
   return { userId: u.id, namespace: personalNs(u.id) };
 }
+
+// ── Пространства проектов/команд (OlimpOS P3) ──
+
+export interface SpaceTenant {
+  namespace: string;   // имя пространства проекта (`g:<chatId>` или `p:<uuid>`)
+  userId: string;      // синтетический аккаунт проекта (для доменного скоупа: tasks/projects)
+  spaceId: string;     // = namespace uuid
+}
+
+/** Добавить пользователя в пространство (idempotent). */
+export async function addMember(pg: Postgres, namespaceId: string, userId: string, role: "owner" | "member" | "viewer" = "member"): Promise<void> {
+  await pg.query(
+    "insert into membership(user_id, namespace, role) values ($1,$2,$3) on conflict (user_id, namespace) do update set role = excluded.role",
+    [userId, namespaceId, role],
+  );
+}
+
+/**
+ * Резолвинг проектного пространства группового Telegram-чата. Find-or-create: пространство +
+ * синтетический аккаунт проекта + space-строка + membership создателя. Все реплики группы скоупятся
+ * к проекту (общая память/задачи), НЕ к личным пространствам участников.
+ */
+export async function resolveGroupSpace(
+  pg: Postgres,
+  tgChatId: number,
+  opts: { name?: string; creatorTgId?: number } = {},
+): Promise<SpaceTenant> {
+  const existing = await pg.queryOne<{ namespace: string; account_user: string }>(
+    "select s.namespace, s.account_user from space s where s.tg_chat_id = $1",
+    [tgChatId],
+  );
+  if (existing && existing.account_user) {
+    const nsName = await pg.queryOne<{ name: string }>("select name from mem_namespace where id = $1", [existing.namespace]);
+    return { namespace: nsName!.name, userId: existing.account_user, spaceId: existing.namespace };
+  }
+  // создаём проектное пространство (creator резолвим ВНЕ tx, чтобы не вложить транзакции)
+  let creatorUserId: string | null = null;
+  if (opts.creatorTgId) {
+    const c = await resolveTenantByTelegram(pg, opts.creatorTgId, {});
+    creatorUserId = c?.userId ?? null;
+  }
+  return pg.tx(async (t) => {
+    // синтетический аккаунт проекта
+    const acc = await t.queryOne<{ id: string }>(
+      "insert into users(display_name, status) values ($1,'active') returning id",
+      [opts.name ?? "Проект"],
+    );
+    const accId = acc!.id;
+    const nsName = `g:${tgChatId}`;
+    const ns = await t.queryOne<{ id: string }>(
+      "insert into mem_namespace(name) values ($1) on conflict (name) do update set name = excluded.name returning id",
+      [nsName],
+    );
+    const nsId = ns!.id;
+    await t.query("update users set personal_namespace = $2 where id = $1", [accId, nsId]);
+    await t.query(
+      "insert into space(namespace, kind, name, account_user, owner_user, tg_chat_id) values ($1,'project',$2,$3,$4,$5) on conflict (namespace) do nothing",
+      [nsId, opts.name ?? "Проект", accId, creatorUserId, tgChatId],
+    );
+    // membership: аккаунт проекта (owner) + человек-создатель (member)
+    await t.query("insert into membership(user_id, namespace, role) values ($1,$2,'owner') on conflict do nothing", [accId, nsId]);
+    if (creatorUserId) await t.query("insert into membership(user_id, namespace, role) values ($1,$2,'member') on conflict do nothing", [creatorUserId, nsId]);
+    return { namespace: nsName, userId: accId, spaceId: nsId };
+  });
+}
