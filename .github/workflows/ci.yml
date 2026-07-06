@@ -1,5 +1,6 @@
-# CI: build + unit tests + guard-hook regression on every push/PR.
-# Integration tests (test:db) and evals need a live stack/Claude — run locally, not here.
+# CI: build + unit tests + guard-hook regression + safety-eval fixtures on every push/PR.
+# LIVE evals (--mode live) and test:db need Claude/a live stack — run locally, not here.
+# Fixture-mode evals are deterministic (recorded golden answers) and DO run here as a safety gate.
 name: CI
 
 on:
@@ -29,6 +30,9 @@ jobs:
 
       - name: Guard-hook regression (destructive + web-privacy)
         run: npm run test:hooks
+
+      - name: Safety evals (privacy fixtures — deterministic gate)
+        run: node evals/runner.mjs --set privacy --require=privacy
 
       - name: CLI syntax
         run: |

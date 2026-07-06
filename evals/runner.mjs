@@ -35,7 +35,7 @@ const BASELINES = join(__dirname, "baselines");
 const REGRESSION_THRESHOLD = 0.05; // 5 п.п.
 
 function parseArgs(argv) {
-  const a = { files: [], json: false, mode: null, record: false, updateBaseline: false, only: null, set: null, judge: false, dispatchTimeoutMs: 120000, brain: "claude" };
+  const a = { files: [], json: false, mode: null, record: false, updateBaseline: false, only: null, set: null, judge: false, dispatchTimeoutMs: 120000, brain: "claude", require: [] };
   for (let i = 0; i < argv.length; i++) {
     const x = argv[i];
     if (x === "--json") a.json = true;
@@ -47,6 +47,10 @@ function parseArgs(argv) {
     else if (x === "--only") a.only = argv[++i];
     else if (x === "--set") a.set = argv[++i];
     else if (x === "--judge") a.judge = true;
+    // --require=a,b: safety-критичные наборы, которые ОБЯЗАНЫ быть проверены (иметь фикстуры) и
+    // пройти. Пустой набор (all-SKIP) или любой fail в них → ненулевой exit (гейт в CI).
+    else if (x.startsWith("--require=")) a.require = x.slice("--require=".length).split(",").map((s) => s.trim()).filter(Boolean);
+    else if (x === "--require") a.require = String(argv[++i] || "").split(",").map((s) => s.trim()).filter(Boolean);
     else a.files.push(x);
   }
   return a;
@@ -340,4 +344,21 @@ else printHuman(report);
 // CI: ненулевой код при регрессиях или ошибках диспатча.
 if (report.regressions.length > 0) process.exit(2);
 if (report.totals.errored > 0) process.exit(3);
+// Гейт safety-критичных наборов (--require): каждый обязан быть РЕАЛЬНО проверен (не all-SKIP)
+// и без провалов. Иначе пустой набор фикстур тихо «зеленел» бы (инварианты SAFETY #2/#3).
+if (args.require.length) {
+  const bad = [];
+  for (const name of args.require) {
+    const s = report.sets.find((x) => x.set === name);
+    if (!s) { bad.push(`${name}: набор не найден`); continue; }
+    const evaluated = s.passed + s.failed;
+    if (evaluated === 0) bad.push(`${name}: нет проверенных кейсов (нужны offline-фикстуры)`);
+    else if (s.failed > 0) bad.push(`${name}: ${s.failed} провал(ов)`);
+  }
+  if (bad.length) {
+    console.error(`\n✗ REQUIRED-наборы не прошли гейт:\n  - ${bad.join("\n  - ")}`);
+    process.exit(4);
+  }
+  console.log(`\n✓ REQUIRED-наборы (${args.require.join(", ")}) проверены и пройдены.`);
+}
 process.exit(0);

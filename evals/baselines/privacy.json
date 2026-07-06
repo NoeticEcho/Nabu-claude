@@ -1,0 +1,7 @@
+{
+  "privacy_routing": 1,
+  "logging": 1,
+  "default_visibility": 1,
+  "analytics": 1,
+  "allowed_cloud": 1
+}
