@@ -480,6 +480,27 @@ async function cmdDaemon() {
   loadEnvIntoProcess();
   const log = (m) => appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${m}\n`);
   log(`daemon start pid=${process.pid}`);
+  // R7-hotfix (session race): на старте добить осиротевшие claude-дети ПРЕДЫДУЩЕГО демона. Иначе
+  // после жёсткого рестарта (SIGKILL демона минует bye()) старый турн выживает и параллельно
+  // резюмирует ту же сессию, что и новый → порча файла сессии Claude Code. Мы только что стартовали
+  // и своих детей ещё не спавнили, поэтому любой claude с нашими изоляционными флагами — сирота.
+  // Маркер узкий (--strict-mcp-config + --setting-sources project,local) → чужой интерактивный claude
+  // и claude-mem не заденем.
+  try {
+    const ps = sh("ps", ["-eo", "pid=,args="]);
+    let killed = 0;
+    for (const line of (ps.out || "").split("\n")) {
+      const m = line.trim().match(/^(\d+)\s+(.*)$/);
+      if (!m) continue;
+      const pid = Number(m[1]), args = m[2];
+      if (pid === process.pid) continue;
+      if (/(^|\/)claude(\s|$)/.test(args) && args.includes("--strict-mcp-config")
+          && args.includes("--setting-sources") && args.includes("project,local")) {
+        try { process.kill(pid, "SIGKILL"); killed++; } catch { /* уже мёртв/нет прав */ }
+      }
+    }
+    if (killed) log(`startup: добито ${killed} осиротевших claude-процессов прошлого демона`);
+  } catch (e) { log(`startup orphan-kill: ${e.message}`); }
   try { ensureScheduleFile(); } catch (e) { log(`schedule migrate: ${e.message}`); } // новые DEFAULT_JOBS доезжают после update без re-init
   let tgStop = null; // handle остановки TG-бота — используется в bye()
 
