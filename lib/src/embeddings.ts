@@ -126,9 +126,18 @@ export class Embedder {
     let lastErr: unknown;
     for (let attempt = 0; attempt < tries; attempt++) {
       try {
-        return this.provider === "openai"
-          ? await this.embedOpenAI(inputs, timeoutMs)
-          : await this.embedOllama(inputs, timeoutMs);
+        // Жёсткий предохранитель поверх AbortSignal: даже если чтение тела ответа зависнет
+        // (заголовки пришли, а поток тела встал — AbortSignal не всегда прерывает res.json()),
+        // Promise.race гарантированно освободит прогон. Замечено: без него массовая индексация
+        // «висла» на отдельных файлах бесконечно.
+        const hardMs = timeoutMs + 5_000;
+        const call = this.provider === "openai"
+          ? this.embedOpenAI(inputs, timeoutMs)
+          : this.embedOllama(inputs, timeoutMs);
+        return await Promise.race([
+          call,
+          new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`embed hard-timeout (${hardMs}ms)`)), hardMs).unref?.()),
+        ]);
       } catch (e) {
         lastErr = e;
         if (!isTransient(e) || attempt === tries - 1) throw e;
