@@ -18,7 +18,7 @@ import { dirname, join } from "node:path";
 import { allSharedConvs, isSharedConv, convTitle, roleOfConv } from "./conversations.mjs";
 
 const CHILD_TIMEOUT_MS = 10 * 60 * 1000; // kill a stuck Claude after 10 minutes
-import { buildClaudeArgs, makeNdjsonParser, withConversationLock } from "./claude-run.mjs";
+import { buildClaudeArgs, makeNdjsonParser, withConversationLock, extractAssistantText } from "./claude-run.mjs";
 
 // ---------------------------------------------------------------------------
 // Структурированный JSONL-лог (${nabuHome}/.nabu/logs/chat.jsonl, ротация 5МБ).
@@ -346,19 +346,6 @@ function sseSend(res, obj) {
 // ---------------------------------------------------------------------------
 
 // Extract text pieces from an assistant message event's content array.
-function extractAssistantText(event) {
-  const out = [];
-  const content = event?.message?.content;
-  if (Array.isArray(content)) {
-    for (const block of content) {
-      if (block && block.type === "text" && typeof block.text === "string") {
-        out.push(block.text);
-      }
-    }
-  }
-  return out;
-}
-
 // Extract text from a streaming delta event (stream_event / partial assistant).
 function extractDeltaText(event) {
   // stream-json may emit incremental deltas in a few shapes; be liberal.
@@ -558,11 +545,15 @@ async function handleChat(req, res, opts) {
     return;
   }
 
-  const message = typeof body.message === "string" ? body.message : "";
+  let message = typeof body.message === "string" ? body.message : "";
   if (!message.trim()) {
     sendJson(res, 400, { error: "empty_message" });
     return;
   }
+  // R7-G9: message уходит в argv `claude -p <text>` — слишком длинный близок к ARG_MAX (E2BIG,
+  // невнятный «claude process error»). Ограничиваем (Telegram-мост режет до 30k; web — тут).
+  const MAX_MSG_CHARS = Number(process.env.NABU_MAX_MESSAGE_CHARS) || 200_000;
+  if (message.length > MAX_MSG_CHARS) message = message.slice(0, MAX_MSG_CHARS) + "\n\n[…сообщение усечено по длине]";
 
   // Гейт нагрузки: не запускаем больше MAX_CONCURRENT_CHATS Claude-сессий одновременно.
   // Проверка+инкремент атомарны (JS однопоточен); декремент — по закрытию ответа (покрывает ВСЕ

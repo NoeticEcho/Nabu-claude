@@ -60,6 +60,19 @@ export function withConversationLock(key, fn) {
   return run;
 }
 
+// Текст из полного assistant-события (stream-json): блоки content[type=text] (R7-Q1: раньше
+// копипастилось идентично в оба моста). Возвращает массив строк.
+export function extractAssistantText(event) {
+  const out = [];
+  const content = event?.message?.content;
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (block && block.type === "text" && typeof block.text === "string") out.push(block.text);
+    }
+  }
+  return out;
+}
+
 export function makeNdjsonParser(onEvent) {
   let buf = "";
   const emit = (line) => {

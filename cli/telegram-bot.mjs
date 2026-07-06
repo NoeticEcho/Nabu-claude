@@ -70,7 +70,7 @@ const STREAM_MIN_DELTA = 40; // и только если накопилось �
 const TG_RETRY_MAX_S = 30; // потолок ожидания по 429 retry_after
 
 // Тот же узкий allowlist, что и в chat-server: MCP Nabu + чтение + субагенты.
-import { buildClaudeArgs, makeNdjsonParser, withConversationLock } from "./claude-run.mjs";
+import { buildClaudeArgs, makeNdjsonParser, withConversationLock, extractAssistantText } from "./claude-run.mjs";
 
 // Темы форума: роль → заголовок. Порядок = порядок создания в /setup.
 const MINISTERS = [
@@ -209,17 +209,6 @@ function chunkText(text, limit = CHUNK_LIMIT) {
 }
 
 // Собрать текстовые блоки из assistant-события stream-json (как в chat-server).
-function extractAssistantText(event) {
-  const out = [];
-  const content = event?.message?.content;
-  if (Array.isArray(content)) {
-    for (const block of content) {
-      if (block && block.type === "text" && typeof block.text === "string") out.push(block.text);
-    }
-  }
-  return out;
-}
-
 // ---------------------------------------------------------------------------
 // Claude Code: один headless-обмен. Текст собираем и возвращаем целиком, а по мере
 // накопления зовём onText(collected) — чтобы вызывающий стримил ответ в Telegram.
