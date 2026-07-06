@@ -32,7 +32,7 @@ jobs:
         run: npm run test:hooks
 
       - name: Safety evals (privacy fixtures — deterministic gate)
-        run: node evals/runner.mjs --set privacy --require=privacy
+        run: node evals/runner.mjs --require=privacy,mind-crisis
 
       - name: CLI syntax
         run: |
