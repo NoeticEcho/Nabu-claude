@@ -83,8 +83,14 @@ export function parseAmount(raw: string): number {
       s = s.replace(/,/g, "");
     }
   } else if (lastComma >= 0) {
-    // только запятая → десятичная
-    s = s.replace(",", ".");
+    // Только запятая. R7-E9: неоднозначность «1,000». Одна запятая + ровно 3 цифры после и без
+    // других разделителей → это разделитель ТЫСЯЧ (1,000 = 1000), а не десятичная (иначе занижение
+    // в 1000×). Иначе (1,50 / 1,5) — десятичная запятая.
+    const after = s.slice(lastComma + 1);
+    const commaCount = (s.match(/,/g) || []).length;
+    if (commaCount > 1) s = s.replace(/,/g, "");            // 1,000,000 → все запятые — тысячи
+    else if (/^\d{3}$/.test(after)) s = s.replace(",", ""); // 1,000 → тысячи
+    else s = s.replace(",", ".");                            // 1,50 / 1,5 → десятичная
   }
   const n = Number(s);
   return n;

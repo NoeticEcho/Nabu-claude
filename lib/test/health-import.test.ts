@@ -79,6 +79,12 @@ test("parseGoogleFitDaily: maps columns, m→km, handles quoted comma field", ()
   assert.equal(dist1?.value, 4.2005); // 4200.5м → км
   assert.equal(dist1?.unit, "km");
 
+  // R7-E8: Google Fit "Heart Points"/"Heart Minutes" (баллы активности) НЕ должны стать heart_rate.
+  const hpCsv = `Date,Step count,Heart Points,Heart Minutes,Average heart rate (bpm)\n2026-07-01,1000,42,15,68`;
+  const hp = parseGoogleFitDaily(hpCsv);
+  const hrPts = hp.filter((p) => p.metric === "heart_rate");
+  assert.equal(hrPts.length, 1);          // только настоящая ЧСС-колонка
+  assert.equal(hrPts[0]!.value, 68);      // 68 bpm, НЕ 42 (heart points)
   // День 3: пустой heart rate → нет точки heart_rate.
   const day3 = pts.filter((p) => p.occurredAt === "2026-07-03");
   assert.equal(day3.some((p) => p.metric === "heart_rate"), false);

@@ -154,7 +154,9 @@ export function parseGoogleFitDaily(csv: string): HealthPoint[] {
   const idxDate = find((h) => h.includes("date"));
   const idxSteps = find((h) => h.includes("step"));
   const idxDistance = find((h) => h.includes("distance"));
-  const idxHeart = find((h) => h.includes("heart"));
+  // R7-E8: "heart" исключая Google Fit "Heart Points"/"Heart Minutes" (баллы активности, НЕ ЧСС) —
+  // иначе баллы импортировались бы как удары/мин. Оставляем "Heart rate"/"Heart Rate (bpm)" и т.п.
+  const idxHeart = find((h) => h.includes("heart") && !h.includes("point") && !h.includes("minute"));
   const idxCalories = find((h) => h.includes("calor"));
 
   const points: HealthPoint[] = [];
