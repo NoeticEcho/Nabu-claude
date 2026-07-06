@@ -502,6 +502,17 @@ async function cmdDaemon() {
     if (killed) log(`startup: добито ${killed} осиротевших claude-процессов прошлого демона`);
   } catch (e) { log(`startup orphan-kill: ${e.message}`); }
   try { ensureScheduleFile(); } catch (e) { log(`schedule migrate: ${e.message}`); } // новые DEFAULT_JOBS доезжают после update без re-init
+  // OlimpOS P4: засеять реестр встроенных агентов (idempotent, best-effort, не блокирует старт).
+  (async () => {
+    try {
+      const lib = await import(pathToFileURL(join(REPO_ROOT, "lib", "dist", "index.js")).href);
+      const deps = lib.buildDeps();
+      const slugs = readdirSync(join(REPO_ROOT, "agents")).filter((f) => f.endsWith(".md")).map((f) => f.replace(/\.md$/, ""));
+      const n = await lib.seedBuiltinAgents(deps.pg, slugs);
+      await deps.pg.close();
+      log(`agent-registry: засеяно/сверено ${n} встроенных агентов`);
+    } catch (e) { log(`agent-registry seed: ${e.message}`); }
+  })();
   let tgStop = null; // handle остановки TG-бота — используется в bye()
 
   // Встроенный веб-чат. Retry на EADDRINUSE: при self-restart (auto-update) старый демон
