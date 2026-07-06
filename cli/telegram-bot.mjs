@@ -23,6 +23,24 @@
 //   имевшегося хранилища Telegram, не уходит — в облако/Claude уходит только текст расшифровки.
 
 import { spawn, spawnSync } from "node:child_process";
+
+// R7-E5: async-двойник spawnSync с захватом stdout — для внешних бинарей (unzip/pdftotext/
+// tesseract) в демоне: на больших файлах они синхронно фризили event-loop (чат+все TG-топики).
+// Возвращает форму, совместимую со spawnSync: {error, status, stdout, stderr}.
+function spawnCapture(cmd, args, opts = {}) {
+  return new Promise((res) => {
+    const { maxBuffer = 30 * 1024 * 1024 } = opts;
+    let child;
+    try { child = spawn(cmd, args, { windowsHide: true }); }
+    catch (e) { res({ error: e, status: -1, stdout: "", stderr: "" }); return; }
+    let out = "", errOut = "", done = false;
+    const finish = (r) => { if (!done) { done = true; res(r); } };
+    child.stdout?.on("data", (d) => { out += d; if (out.length > maxBuffer) out = out.slice(-maxBuffer); });
+    child.stderr?.on("data", (d) => { errOut = (errOut + d).slice(-4000); });
+    child.on("error", (e) => finish({ error: e, status: -1, stdout: out, stderr: errOut }));
+    child.on("close", (code) => finish({ error: null, status: code ?? -1, stdout: out, stderr: errOut }));
+  });
+}
 import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync, unlinkSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -817,20 +835,31 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     return null; // не готов (не кэшируем null: могли доустановить)
   }
   let whisperInstalling = null;
+  // R7-E2: НЕблокирующий spawn (раньше spawnSync `uv venv/pip install` фризил ВЕСЬ демон —
+  // web-чат + все TG-топики + планировщик — до 10 минут при первом голосовом). Возвращает
+  // {ok, status}; timeout → SIGKILL. Установка идёт в фоне, event-loop свободен.
+  const spawnQuiet = (cmd, args, timeoutMs) => new Promise((res) => {
+    let done = false;
+    const child = spawn(cmd, args, { stdio: "ignore", windowsHide: true });
+    const timer = timeoutMs ? setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* */ } }, timeoutMs) : null;
+    timer?.unref?.();
+    child.on("error", () => { if (!done) { done = true; if (timer) clearTimeout(timer); res({ ok: false, status: -1 }); } });
+    child.on("close", (code) => { if (!done) { done = true; if (timer) clearTimeout(timer); res({ ok: code === 0, status: code ?? -1 }); } });
+  });
   // Ленивая установка faster-whisper через uv (для свежих инсталляций). Возвращает python или null.
   function ensureWhisper() {
     if (whisperInstalling) return whisperInstalling; // одна установка за раз
     whisperInstalling = (async () => {
       try {
-        const uv = spawnSync("uv", ["--version"], { stdio: "ignore" });
-        if (uv.error || uv.status !== 0) return null; // нет uv — установить нечем
+        const uv = await spawnQuiet("uv", ["--version"]);
+        if (!uv.ok) return null; // нет uv — установить нечем
         const py = whisperVenvPython();
         if (!existsSync(py)) {
-          const v = spawnSync("uv", ["venv", WHISPER_VENV, "--python", "3.12"], { stdio: "ignore", timeout: 120000 });
-          if (v.error || v.status !== 0) return null;
+          const v = await spawnQuiet("uv", ["venv", WHISPER_VENV, "--python", "3.12"], 120000);
+          if (!v.ok) return null;
         }
-        const inst = spawnSync("uv", ["pip", "install", "--python", py, "faster-whisper"], { stdio: "ignore", timeout: 600000 });
-        if (inst.error || inst.status !== 0) return null;
+        const inst = await spawnQuiet("uv", ["pip", "install", "--python", py, "faster-whisper"], 600000);
+        if (!inst.ok) return null;
         whisperBin = py;
         log({ evt: "tg_whisper_installed" });
         return py;
@@ -1139,7 +1168,7 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     const dest = join(nabuHome, "imports", `${base}-${Date.now()}`);
     try {
       mkdirSync(dest, { recursive: true });
-      const r = spawnSync("unzip", ["-o", "-q", zipPath, "-d", dest], { encoding: "utf8" });
+      const r = await spawnCapture("unzip", ["-o", "-q", zipPath, "-d", dest]);
       if (r.error || r.status !== 0) { await reply(msg, `Не удалось распаковать архив: ${(r.stderr || r.error?.message || "").slice(0, 150)}`); return; }
     } catch (e) { await reply(msg, `Ошибка распаковки: ${String(e.message).slice(0, 150)}`); return; }
     finally { try { unlinkSync(zipPath); } catch { /* */ } }
@@ -1195,7 +1224,7 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
       let content = "";
       const isPdf = /\.pdf$/i.test(name) || doc.mime_type === "application/pdf";
       if (isPdf) {
-        const r = spawnSync("pdftotext", ["-layout", path, "-"], { encoding: "utf8", maxBuffer: 30 * 1024 * 1024 });
+        const r = await spawnCapture("pdftotext", ["-layout", path, "-"], { maxBuffer: 30 * 1024 * 1024 });
         if (!r.error && r.status === 0) content = String(r.stdout || "").trim();
         else { await reply(msg, "PDF не разобрать: установите poppler(-utils) (pdftotext)."); return; }
       } else if (TEXT_EXT.test(name) || /^text\//.test(doc.mime_type || "") || doc.mime_type === "application/json") {
@@ -1288,7 +1317,7 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
         } catch { /* → tesseract */ }
       }
       if (!text) {
-        const r = spawnSync("tesseract", [imgPath, "stdout", "-l", process.env.NABU_OCR_LANGS || "rus+eng"], { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
+        const r = await spawnCapture("tesseract", [imgPath, "stdout", "-l", process.env.NABU_OCR_LANGS || "rus+eng"], { maxBuffer: 10 * 1024 * 1024 });
         if (!r.error && r.status === 0) { text = String(r.stdout || "").trim(); method = "tesseract"; }
       }
       if (!text) {
