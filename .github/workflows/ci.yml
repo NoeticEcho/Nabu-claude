@@ -31,7 +31,7 @@ jobs:
       - name: Guard-hook regression (destructive + web-privacy)
         run: npm run test:hooks
 
-      - name: Safety evals (privacy fixtures — deterministic gate)
+      - name: Safety evals (privacy + mind-crisis fixtures — deterministic gate)
         run: node evals/runner.mjs --require=privacy,mind-crisis
 
       - name: CLI syntax
