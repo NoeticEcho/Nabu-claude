@@ -169,6 +169,9 @@ function detectMode() {
 }
 const composeArgs = (extra, profile = false) => ["compose", "-f", join(REPO_ROOT, "docker-compose.yml"), ...(profile ? ["--profile", "ollama"] : []), ...extra];
 function dockerAvailable() { return has("docker") && sh("docker", ["info"]).code === 0; }
+/** Async-двойник (R7-E5): для путей внутри демона (ночной cmdBackup планировщика) — `docker info`
+ *  на занятом демоне идёт секунды и синхронно фризил бы event-loop (чат/TG). */
+async function dockerAvailableAsync() { return has("docker") && (await shAsync("docker", ["info"])).code === 0; }
 const readJson = (p, fallback) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return fallback; } };
 // uniq tmp = pid+uuid: не топчут файл ни два процесса (демон+бот), ни параллельные fire-and-forget
 // записи В ОДНОМ процессе (job-results/proactivity/schedule-state) — иначе torn-file/ENOENT (R6-M13).
@@ -465,6 +468,14 @@ function ensureScheduleFile() {
 // ── демон ──
 async function cmdDaemon() {
   mkdirSync(STATE_DIR, { recursive: true });
+  // R7-G4: не запускать второй демон поверх живого — иначе два getUpdates на одном токене
+  // (Telegram 409 Conflict, потеря апдейтов) и борьба за порт web-чата. safeDaemonPid()
+  // возвращает pid живого демона (или null). Прямой `nabu daemon` при живом инстансе — отказ.
+  const alivePid = safeDaemonPid();
+  if (alivePid && alivePid !== process.pid) {
+    err(`Демон уже запущен (pid ${alivePid}). Остановите его (nabu stop) перед повторным запуском.`);
+    process.exit(1);
+  }
   writeFileSync(PID_FILE, String(process.pid));
   loadEnvIntoProcess();
   const log = (m) => appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${m}\n`);
@@ -511,7 +522,9 @@ async function cmdDaemon() {
     } catch (e) { log(`telegram bot FAILED: ${e.message}`); }
   }
 
-  let lastPurge = 0, lastUpdateCheck = 0;
+  // lastUpdateCheck = now: первый чек обновлений — через сутки, НЕ на старте (R7-E1: не бить
+  // синхронной сетью по event-loop сразу при запуске). lastPurge=0: TTL-purge на первом тике ок.
+  let lastPurge = 0, lastUpdateCheck = Date.now();
   const tick = async () => {
     const now = Date.now();
     // 1. Планировщик agent-задач
@@ -622,12 +635,14 @@ async function cmdDaemon() {
     if (now - lastUpdateCheck > 86_400_000) {
       lastUpdateCheck = now;
       try {
-        sh("git", ["-C", REPO_ROOT, "fetch", "--quiet"]);
-        const behind = Number(sh("git", ["-C", REPO_ROOT, "rev-list", "--count", "HEAD..@{u}"]).out || 0);
+        // ASYNC (R7-E1): раньше синхронный sh("git fetch") фризил event-loop демона (сеть) →
+        // замирали SSE-чат и Telegram-поллинг. Теперь через shAsync — не блокирует.
+        await shAsync("git", ["-C", REPO_ROOT, "fetch", "--quiet"]);
+        const behind = Number((await shAsync("git", ["-C", REPO_ROOT, "rev-list", "--count", "HEAD..@{u}"])).out || 0);
         writeJson(UPDATE_STATUS, { checkedAt: new Date().toISOString(), behind });
         if (behind > 0) {
           log(`update: доступно ${behind} коммит(ов)`);
-          if (readJson(SCHEDULE_FILE, {}).auto_update) { log("auto_update=true → обновляюсь"); doUpdate(log, { inDaemon: true }); }
+          if (readJson(SCHEDULE_FILE, {}).auto_update) { log("auto_update=true → обновляюсь"); await doUpdate(log, { inDaemon: true }); }
         }
       } catch (e) { log(`update check error: ${e.message}`); }
     }
@@ -658,6 +673,14 @@ function runClaudeJob(job, log) {
   const child = spawn(CLAUDE_BIN, args, {
     cwd: existsSync(NABU_HOME) ? NABU_HOME : REPO_ROOT, stdio: ["ignore", "pipe", "pipe"], env: process.env, windowsHide: true,
   });
+  // R7-G5: таймаут+SIGKILL — зависший scheduled-джоб иначе жил бы вечно процессом-сиротой
+  // (в web/TG таймаут есть, здесь не было). Дефолт 15 мин, переопределяется NABU_JOB_TIMEOUT_MS.
+  const jobTimeoutMs = Number(process.env.NABU_JOB_TIMEOUT_MS) || 900_000;
+  const killTimer = setTimeout(() => {
+    log(`job timeout: ${job.name} (${jobTimeoutMs}ms) → SIGKILL`);
+    try { child.kill("SIGKILL"); } catch { /* уже мёртв */ }
+  }, jobTimeoutMs);
+  killTimer.unref?.();
   let out = "";
   let errTail = "";
   // spawn-ошибка (claude не в PATH) без обработчика РОНЯЛА демон — теперь лог + запись результата.
@@ -674,6 +697,7 @@ function runClaudeJob(job, log) {
   child.stderr.on("data", (d) => { errTail = (errTail + d).slice(-2000); });
   const t0 = Date.now();
   child.on("exit", (code) => {
+    clearTimeout(killTimer); // джоб завершился — снять kill-таймер
     appendFileSync(logPath, `\n[${new Date().toISOString()}] exit=${code} ms=${Date.now() - t0}\n${out}\n${errTail ? "stderr: " + errTail + "\n" : ""}`);
     log(`job done: ${job.name} exit=${code}`);
     let resultText = null;
@@ -838,9 +862,11 @@ async function pushToTelegram(text, log, jobName = null) {
   if (jobName && sentOk) recordProactivePush(jobName, log);
 }
 
-function doUpdate(log = console.log, { inDaemon = false } = {}) {
+// async (R7-E4): в демоне (inDaemon) npm install/build раньше синхронно фризили event-loop на
+// минуты перед само-рестартом. Теперь через shAsync. CLI-путь (nabu update) тоже await'ит.
+async function doUpdate(log = console.log, { inDaemon = false } = {}) {
   const wasRunning = safeDaemonPid();
-  const pull = sh("git", ["-C", REPO_ROOT, "pull", "--ff-only"]);
+  const pull = await shAsync("git", ["-C", REPO_ROOT, "pull", "--ff-only"]);
   if (pull.code !== 0) {
     err(`git pull не удался: ${pull.errOut.slice(0, 300)}`);
     process.exitCode = 1; // r4-J2: провал апдейта не должен рапортовать успехом
@@ -848,10 +874,10 @@ function doUpdate(log = console.log, { inDaemon = false } = {}) {
   }
   if (/Already up to date|Уже обновлено/i.test(pull.out)) { ok("Уже последняя версия"); return; }
   info("Обновление получено → npm install && build…");
-  sh(NPM, ["install", "--no-audit", "--no-fund"], { cwd: REPO_ROOT, stdio: ["ignore", "inherit", "inherit"] });
-  const b = sh(NPM, ["run", "build"], { cwd: REPO_ROOT, stdio: ["ignore", "inherit", "inherit"] });
+  await shAsync(NPM, ["install", "--no-audit", "--no-fund"], { cwd: REPO_ROOT, stdio: ["ignore", "inherit", "inherit"] });
+  const b = await shAsync(NPM, ["run", "build"], { cwd: REPO_ROOT, stdio: ["ignore", "inherit", "inherit"] });
   if (b.code !== 0) return err("build после обновления не удался — откатитесь: git -C " + REPO_ROOT + " reset --hard HEAD@{1}");
-  ok("Обновлено: " + sh("git", ["-C", REPO_ROOT, "log", "--oneline", "-1"]).out);
+  ok("Обновлено: " + (await shAsync("git", ["-C", REPO_ROOT, "log", "--oneline", "-1"])).out);
   if (inDaemon) {
     // Мы — сам демон: НЕ убиваем себя через cmdStop (гонка pidfile). Спавним замену
     // (она перепишет pidfile своим pid) и выходим; bye-guard не тронет чужой pidfile.
@@ -1143,7 +1169,7 @@ async function cmdBackup(flags = {}, log = (m) => info(m)) {
   const failed = [];
   const encQueue = []; // шифрование — после создания артефакта (--encrypt)
   const mode = detectMode();
-  const containerExists = (name) => sh("docker", ["inspect", "--format", "{{.Name}}", name], { windowsHide: true }).code === 0;
+  const containerExists = async (name) => (await shAsync("docker", ["inspect", "--format", "{{.Name}}", name], { windowsHide: true })).code === 0;
   /** Артефакт засчитывается только валидным: провал/пустышка удаляется с диска. */
   const accept = (okFlag, dst, label, minBytes, errText = "") => {
     let size = 0;
@@ -1167,8 +1193,8 @@ async function cmdBackup(flags = {}, log = (m) => info(m)) {
   };
 
   // 1. Postgres → pg-<ts>.sql.gz
-  if (mode === "standalone" && dockerAvailable()) {
-    if (!containerExists("nabu-postgres")) {
+  if (mode === "standalone" && await dockerAvailableAsync()) {
+    if (!(await containerExists("nabu-postgres"))) {
       failed.push("Postgres");
       warn("Postgres-бэкап: контейнер nabu-postgres не существует (nabu init)");
     } else {
@@ -1199,8 +1225,8 @@ async function cmdBackup(flags = {}, log = (m) => info(m)) {
 
   // 2. TypeDB: preflight контейнера (иначе docker run НЕЯВНО создаст пустой том и
   //    заархивирует пустоту как успех) → краткая остановка → tar тома → старт.
-  if (mode === "standalone" && dockerAvailable()) {
-    if (!containerExists("nabu-typedb")) {
+  if (mode === "standalone" && await dockerAvailableAsync()) {
+    if (!(await containerExists("nabu-typedb"))) {
       failed.push("TypeDB");
       warn("TypeDB-бэкап: контейнер nabu-typedb не существует — пропущен (том не создаём)");
     } else {
@@ -1848,7 +1874,7 @@ switch (cmd) {
   case "stats": await cmdStats(); break;
   case "chat": cmdChat(); break;
   case "daemon": await cmdDaemon(); break;
-  case "update": doUpdate(); break;
+  case "update": await doUpdate(); break;
   case "doctor": await cmdDoctor(flags); break;
   case "models": await cmdModels(rest, flags); break;
   case "profiles": {
