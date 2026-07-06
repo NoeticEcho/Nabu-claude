@@ -30,7 +30,10 @@ fi
 
 if [[ "$cmd" == "--remove" ]]; then
   job="${2:?укажите job}"
-  crontab -l 2>/dev/null | grep -v "$TAG $job\$" | crontab - || true
+  # R7-G11: валидируем job по известным задачам (как install-путь) — иначе regex-метасимволы в $job
+  # могли бы задеть лишние строки crontab. Совпадение — как фиксированную строку (grep -F).
+  [[ -n "${PROMPTS[$job]:-}" ]] || { echo "неизвестная задача: $job. Доступно: ${!PROMPTS[*]}"; exit 1; }
+  crontab -l 2>/dev/null | grep -vF "$TAG $job" | crontab - || true
   echo "удалено: $job"
   exit 0
 fi

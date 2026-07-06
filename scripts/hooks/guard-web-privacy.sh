@@ -41,8 +41,8 @@ deny() {
   if command -v jq >/dev/null 2>&1; then
     jq -n --arg c "$msg" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",additionalContext:$c}}'
   elif command -v python3 >/dev/null 2>&1; then
-    python3 -c "import json,sys;print(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse','permissionDecision':'deny','additionalContext':sys.argv[1]},ensure_ascii=False))" "$msg" 2>/dev/null \
-      || python3 -c "import json,sys;print(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse','permissionDecision':'deny','additionalContext':sys.argv[1]}}))" "$msg"
+    # R7-D3: было SyntaxError (не хватало '}' перед ensure_ascii → kwarg попадал внутрь dict-литерала).
+    python3 -c "import json,sys;print(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse','permissionDecision':'deny','additionalContext':sys.argv[1]}}, ensure_ascii=False))" "$msg"
   else
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","additionalContext":"%s"}}' "$msg"
   fi

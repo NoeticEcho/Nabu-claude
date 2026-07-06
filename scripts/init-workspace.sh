@@ -93,7 +93,7 @@ if [[ ! -f "$NABU_HOME/.nabu/config.json" ]]; then
   "version": "$NABU_VERSION",
   "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "inbox": "00-inbox",
-  "shared_db_with_main_nabu": true
+  "mode": "standalone"
 }
 EOF
 fi

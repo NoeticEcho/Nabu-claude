@@ -1,7 +1,10 @@
 # schema/typedb/002_standalone_domain.tql
 # Полная доменная онтология основного Nabu (docs/07 §3.1) для STANDALONE-режима,
 # переведённая с 2.x-синтаксиса доков на 3.x flat-стиль memory.tql.
-# АДДИТИВНО поверх 000_standalone_base.tql + memory.tql (порядок применения — по имени).
+# АДДИТИВНО поверх 000_standalone_base.tql + memory.tql. ВАЖНО: 002 зависит от типов из memory.tql
+# (name/visibility/weight/confidence/mention/participation), который по алфавиту идёт ПОСЛЕ 002 —
+# поэтому применяется в явном порядке KNOWN_ORDER (cli/nabu.mjs), НЕ по имени файла. Алфавитное
+# применение *.tql упадёт на schema-define.
 # В shared-режиме НЕ применяется — там онтология принадлежит основному приложению.
 #
 # Вынужденные отличия от docs/07 (коллизии с memory.tql, поле labels общее):
