@@ -35,6 +35,12 @@ test("chunkText: не разрезает предложения посреди",
   for (const c of chunks) assert.ok(/[.!?\u2026]$/.test(c.trim()), `чанк обрывается не на конце предложения: ...${c.trim().slice(-30)}`);
 });
 
+test("chunkText: контент без границ (JSON/код) не даёт сверхбольших чанков", () => {
+  const blob = "{\n  \"a\": \"" + "y".repeat(6000) + "\",\n  \"b\": \"" + "z".repeat(6000) + "\"\n}";
+  const chunks = chunkText(blob, 1200, 150);
+  for (const c of chunks) assert.ok(c.length <= 1200 + 150, `чанк ${c.length} превышает maxChars+overlap`);
+});
+
 test("tqlString: экранирует кавычки и обратный слэш", () => {
   assert.equal(tqlString('abc'), '"abc"');
   assert.equal(tqlString('say "hi"'), '"say \\"hi\\""');

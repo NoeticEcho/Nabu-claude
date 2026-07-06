@@ -87,10 +87,23 @@ export function chunkText(text: string, maxChars = 1200, overlap = 150): string[
       const sents = splitSentences(prev);
       let tail = "";
       for (let j = sents.length - 1; j >= 0 && tail.length < overlap; j--) tail = (sents[j] ?? "") + (tail ? " " + tail : "");
+      // ВАЖНО: жёстко ограничиваем хвост `overlap` символами. Иначе на контенте без границ
+      // предложений (JSON/код/данные) splitSentences вернёт весь чанк одним «предложением», хвост
+      // возьмёт его целиком и КАСКАДНО раздует каждый следующий чанк (замечено: 1200→29284 → 400 у
+      // эмбеддера). Берём только последние `overlap` символов.
+      if (tail.length > overlap) tail = tail.slice(-overlap);
       if (tail && !curChunk.startsWith(tail)) chunks[i] = `${tail} ${curChunk}`;
     }
   }
-  return chunks;
+  // Финальная гарантия: ни один чанк не длиннее maxChars+overlap — защита от любой патологии
+  // контента (эмбеддер отвергает вход больше своего контекста, напр. Jina/OpenAI → 400).
+  const cap = maxChars + overlap;
+  const safe: string[] = [];
+  for (const c of chunks) {
+    if (c.length <= cap) { safe.push(c); continue; }
+    for (let i = 0; i < c.length; i += cap) safe.push(c.slice(i, i + cap));
+  }
+  return safe;
 }
 
 /**
