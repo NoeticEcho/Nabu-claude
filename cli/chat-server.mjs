@@ -17,7 +17,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import { allSharedConvs, isSharedConv, convTitle, roleOfConv } from "./conversations.mjs";
 
-const CHILD_TIMEOUT_MS = 10 * 60 * 1000; // kill a stuck Claude after 10 minutes
+// Таймаут одного headless claude-обмена. Дефолт 30 мин (было 10 — рубило длинные агентные задачи
+// вроде консолидации 24 кластеров через субагентов). Настраивается NABU_CLAUDE_TIMEOUT_MS.
+const CHILD_TIMEOUT_MS = Number(process.env.NABU_CLAUDE_TIMEOUT_MS) || 30 * 60 * 1000;
 import { buildClaudeArgs, makeNdjsonParser, withConversationLock, extractAssistantText } from "./claude-run.mjs";
 
 // ---------------------------------------------------------------------------

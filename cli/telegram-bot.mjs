@@ -57,7 +57,9 @@ import { randomUUID } from "node:crypto";
 // фабрики startTelegramBot, а stop() обязан их добивать (иначе сироты при рестарте демона).
 const liveChildren = new Set();
 
-const CHILD_TIMEOUT_MS = 10 * 60 * 1000; // убить зависший claude через 10 минут
+// Таймаут одного headless claude-обмена. Дефолт 30 мин (было 10 — рубило длинные агентные задачи,
+// напр. консолидацию 24 кластеров). Настраивается NABU_CLAUDE_TIMEOUT_MS.
+const CHILD_TIMEOUT_MS = Number(process.env.NABU_CLAUDE_TIMEOUT_MS) || 30 * 60 * 1000;
 const CHUNK_LIMIT = 4000; // Telegram лимит сообщения ~4096; режем с запасом по строкам
 const POLL_TIMEOUT_S = 50; // серверный long-poll getUpdates
 const NET_BACKOFF_MS = 5000; // пауза после сетевой ошибки long-poll
