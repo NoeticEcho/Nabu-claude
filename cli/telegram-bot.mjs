@@ -216,15 +216,19 @@ function chunkText(text, limit = CHUNK_LIMIT) {
 // накопления зовём onText(collected) — чтобы вызывающий стримил ответ в Telegram.
 // ---------------------------------------------------------------------------
 
-function runClaude({ claudeBin, repoRoot, text, resumeSessionId, mcpConfigPath, onText, cwd }) {
+function runClaude({ claudeBin, repoRoot, text, resumeSessionId, mcpConfigPath, onText, cwd, extraEnv }) {
   return new Promise((resolve) => {
     // Общая сборка args (M16) + изоляция + --plugin-dir repoRoot (M6): плагин грузится из репо,
     // а cwd — workspace (адъютант пишет файлы в ~/nabu, не в код-репо).
     const args = buildClaudeArgs({ text, resumeSessionId, mcpConfigPath, repoRoot });
 
+    // OlimpOS P1: extraEnv переопределяет NABU_NAMESPACE/NABU_USER_ID для конкретного тенанта →
+    // MCP-серверы (память/домен/знания) скоупятся к этому пользователю. Дефолт (без extraEnv) —
+    // текущий однопользовательский env процесса.
+    const childEnv = extraEnv ? { ...process.env, ...extraEnv } : process.env;
     let child;
     try {
-      child = spawn(claudeBin, args, { cwd: cwd || repoRoot, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+      child = spawn(claudeBin, args, { cwd: cwd || repoRoot, env: childEnv, stdio: ["ignore", "pipe", "pipe"] });
       liveChildren.add(child);
       child.once("close", () => liveChildren.delete(child));
     } catch (err) {

@@ -53,3 +53,14 @@ test("toVectorLiteral: формат pgvector-литерала", () => {
   assert.equal(toVectorLiteral([0.1, 0.2, 0.3]), "[0.1,0.2,0.3]");
   assert.equal(toVectorLiteral([]), "[]");
 });
+
+test("tenancy: hashPassword/verifyPassword + personalNs + COMMONS_NS", async () => {
+  const { hashPassword, verifyPassword, personalNs, COMMONS_NS } = await import("../dist/index.js");
+  const h = hashPassword("s3cret-пароль");
+  assert.ok(h.startsWith("scrypt$"));
+  assert.equal(verifyPassword("s3cret-пароль", h), true);
+  assert.equal(verifyPassword("wrong", h), false);
+  assert.notEqual(hashPassword("x"), hashPassword("x")); // соль различается
+  assert.equal(personalNs("abc"), "u:abc");
+  assert.equal(COMMONS_NS, "__commons__");
+});
