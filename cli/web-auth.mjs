@@ -101,8 +101,10 @@ export function createWebAuth({ repoRoot, secret }) {
     }
 
     if (method === "GET" && path === "/api/auth/me") {
+      const enabled = process.env.NABU_MULTITENANT === "1";
       const t = resolveTenant(req);
-      return sendJson(res, t ? 200 : 401, t ? { userId: t.userId } : { error: "не аутентифицирован" }), true;
+      // Всегда 200: фронт по authRequired решает, показывать ли форму логина (в однопольз. режиме — нет).
+      return sendJson(res, 200, { authRequired: enabled, authenticated: !!t, userId: t?.userId ?? null }), true;
     }
 
     return sendJson(res, 404, { error: "unknown_auth_route" }), true;

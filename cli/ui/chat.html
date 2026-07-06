@@ -495,6 +495,54 @@
 </style>
 </head>
 <body>
+<!-- OlimpOS P2: экран входа (показывается только если сервер требует auth и нет сессии) -->
+<div id="authGate" style="display:none;position:fixed;inset:0;z-index:9999;background:#0b0d12;color:#e6e8ee;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif">
+  <div style="width:320px;max-width:90vw;padding:24px;background:#141824;border:1px solid #232a3a;border-radius:12px">
+    <div style="font-size:22px;font-weight:600;margin-bottom:2px">Nabu</div>
+    <div id="authSub" style="font-size:13px;opacity:.6;margin-bottom:16px">Вход в личное пространство</div>
+    <input id="authEmail" type="email" placeholder="email" autocomplete="username" style="width:100%;box-sizing:border-box;margin-bottom:8px;padding:10px;border-radius:8px;border:1px solid #2a3245;background:#0f1420;color:#e6e8ee">
+    <input id="authPass" type="password" placeholder="пароль (минимум 8 символов)" autocomplete="current-password" style="width:100%;box-sizing:border-box;margin-bottom:8px;padding:10px;border-radius:8px;border:1px solid #2a3245;background:#0f1420;color:#e6e8ee">
+    <div id="authErr" style="color:#ff8a8a;font-size:12px;min-height:16px;margin-bottom:6px"></div>
+    <button id="authSubmit" style="width:100%;padding:10px;border:0;border-radius:8px;background:#4f8cff;color:#fff;font-weight:600;cursor:pointer">Войти</button>
+    <div style="margin-top:12px;font-size:13px;opacity:.8;text-align:center"><a href="#" id="authToggle" style="color:#7ba7ff">Нет аккаунта? Зарегистрироваться</a></div>
+  </div>
+</div>
+<script>
+// OlimpOS P2 login-gate: если сервер требует auth и сессии нет — показываем форму до загрузки чата.
+(function(){
+  var mode="login";
+  function show(){ document.getElementById("authGate").style.display="flex"; }
+  function setMode(m){ mode=m;
+    document.getElementById("authSub").textContent = m==="login" ? "Вход в личное пространство" : "Создание аккаунта";
+    document.getElementById("authSubmit").textContent = m==="login" ? "Войти" : "Зарегистрироваться";
+    document.getElementById("authToggle").textContent = m==="login" ? "Нет аккаунта? Зарегистрироваться" : "Уже есть аккаунт? Войти";
+    document.getElementById("authPass").setAttribute("autocomplete", m==="login" ? "current-password" : "new-password");
+    document.getElementById("authErr").textContent="";
+  }
+  async function submit(){
+    var email=document.getElementById("authEmail").value.trim();
+    var password=document.getElementById("authPass").value;
+    var err=document.getElementById("authErr"); err.textContent="";
+    if(!email || password.length<8){ err.textContent="Введите email и пароль (≥8 символов)"; return; }
+    try{
+      var r=await fetch("/api/auth/"+(mode==="login"?"login":"register"),{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({email,password})});
+      var j=await r.json().catch(function(){return{};});
+      if(r.ok){ location.reload(); return; }
+      err.textContent = j.error || ("Ошибка ("+r.status+")");
+    }catch(e){ err.textContent="Сеть недоступна"; }
+  }
+  document.addEventListener("DOMContentLoaded", function(){
+    document.getElementById("authSubmit").addEventListener("click", submit);
+    document.getElementById("authPass").addEventListener("keydown", function(e){ if(e.key==="Enter") submit(); });
+    document.getElementById("authToggle").addEventListener("click", function(e){ e.preventDefault(); setMode(mode==="login"?"register":"login"); });
+    setMode("login");
+  });
+  // Проверка ДО инициализации основного чата.
+  fetch("/api/auth/me").then(function(r){return r.json();}).then(function(s){
+    if(s && s.authRequired && !s.authenticated){ show(); }
+  }).catch(function(){});
+})();
+</script>
 <div id="app">
   <aside id="sidebar">
     <div class="sidebar-head">
