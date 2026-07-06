@@ -65,9 +65,11 @@ export const MODEL_CATALOG = [
     note: "заметно точнее; нужен GPU или много RAM" },
   { name: "gpt-oss:20b", role: "chat", ramFloorGb: 16, tier: "quality",
     note: "кандидат на прохождение evals Совета (T2); GPU обязателен" },
-  // — embeddings —
-  { name: "nomic-embed-text-v2-moe:latest", role: "embed", ramFloorGb: 2, tier: "default",
-    note: "эмбеддинги по умолчанию (768-dim, task-префиксы)" },
+  // — embeddings — (768-dim; на слабом CPU локальный инференс ОЧЕНЬ медленный ~30–100с/чанк —
+  //  для массовой индексации используйте удалённый OpenAI-совместимый эмбеддер: NABU_EMBED_PROVIDER=
+  //  openai + OPENAI_EMBED_BASE_URL/_MODEL/_API_KEY, свой приватный сервер или облако. См. docs.)
+  { name: "nomic-embed-text-v2-moe:latest", role: "embed", ramFloorGb: 3, tier: "default",
+    note: "локальные эмбеддинги (768-dim, task-префиксы, большой контекст); на CPU медленно — с GPU" },
   { name: "qwen3-embedding:0.6b", role: "embed", ramFloorGb: 1, tier: "min",
     note: "лёгкая альтернатива эмбеддингов" },
   // — vision (фото→память) —

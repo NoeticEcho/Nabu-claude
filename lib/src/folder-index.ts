@@ -16,7 +16,8 @@ const MAX_FILES = Number(process.env.NABU_INDEX_MAX_FILES) || 5000;
 const MAX_FILE_BYTES = Number(process.env.NABU_INDEX_MAX_FILE_BYTES) || 5_000_000;
 
 export interface IndexProgress { done: number; total: number; file: string; chunks: number; skipped: number; }
-export interface FolderIndexResult { files: number; chunks: number; skipped: number; truncated: boolean; }
+export interface SkipInfo { file: string; reason: string; }
+export interface FolderIndexResult { files: number; chunks: number; skipped: number; truncated: boolean; skips: SkipInfo[]; }
 
 /** Рекурсивно собрать индексируемые файлы (лимит MAX_FILES; skip симлинки/скрытые/бинарь). */
 function collectFiles(root: string): { files: string[]; skipped: number; truncated: boolean } {
@@ -83,20 +84,27 @@ export async function indexFolder(
   const abs = realpathSync(resolve(root));
   const { files, skipped: walkSkipped, truncated } = collectFiles(abs);
   let done = 0, chunks = 0, skipped = walkSkipped;
+  const skips: SkipInfo[] = [];
   for (const file of files) {
     if (opts.signal?.aborted) break;
+    const rel = file.slice(abs.length + 1) || file;
     const text = extractFileText(file);
     if (text.trim()) {
       try {
         chunks += await knowledge.indexDocument(file, text, {
-          kind: opts.kind ?? "personal", visibility: opts.visibility, domain: opts.domain, title: file.slice(abs.length + 1) || file, origin: file,
+          kind: opts.kind ?? "personal", visibility: opts.visibility, domain: opts.domain, title: rel, origin: file,
         });
-      } catch { skipped++; }
-    } else { skipped++; }
+      } catch (e) {
+        skipped++;
+        const reason = (e as Error)?.message?.slice(0, 160) || "неизвестная ошибка";
+        skips.push({ file: rel, reason });
+        console.warn(`[index] пропуск ${rel}: ${reason}`); // причина видна в логе (не молчим)
+      }
+    } else { skipped++; skips.push({ file: rel, reason: "пустой/не извлёкся текст" }); }
     done++;
     opts.onProgress?.({ done, total: files.length, file, chunks, skipped });
   }
-  return { files: files.length, chunks, skipped, truncated };
+  return { files: files.length, chunks, skipped, truncated, skips };
 }
 
 /** Разрешённые корни (sandbox): NABU_HOME + home, или NABU_INDEX_ROOTS. Как в pipeline-server. */

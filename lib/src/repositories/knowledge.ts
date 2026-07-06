@@ -174,9 +174,8 @@ export class KnowledgeRepository {
     const chunks = process.env.NABU_SEMANTIC_CHUNK === "1"
       ? await semanticChunk(text, this.embedder)
       : chunkText(text);
-    // Сначала считаем ВСЕ эмбеддинги (долгая часть — Ollama), и лишь потом мутируем БД.
-    const vecs: number[][] = [];
-    for (const chunk of chunks) vecs.push(await this.embedder.embed(chunk, visibility));
+    // Сначала считаем ВСЕ эмбеддинги (долгая часть — Ollama) батчем, и лишь потом мутируем БД.
+    const vecs = await this.embedder.embedBatch(chunks, visibility);
     const embedded = vecs.map(toVectorLiteral);
 
     // Домен per-chunk: явный o.domain на все, ЛИБО (library без домена) — автоклассификация каждого
