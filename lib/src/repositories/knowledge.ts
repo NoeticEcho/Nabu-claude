@@ -233,7 +233,11 @@ export class KnowledgeRepository {
     const o = typeof opts === "number" ? { topK: opts } : opts; // обратная совместимость (search(q, topK))
     const topK = o.topK ?? 8;
     const ns = await this.ns();
-    const qEmb = toVectorLiteral(await this.embedder.embedQuery(query));
+    // R7-G3: запрос к базе знаний — visibility 'default' (на remote-эмбеддере индекс содержит только
+    // default-контент: private индексируется на remote лишь при NABU_EMBED_ALLOW_REMOTE=1). Так поиск
+    // по библиотеке работает на облачном эмбеддере без отдельного opt-in. Личная память (recall) —
+    // отдельный путь с 'private'.
+    const qEmb = toVectorLiteral(await this.embedder.embedQuery(query, "default"));
     const conds = ["namespace = $1", "embedding is not null", "visibility <> 'vault'"];
     const params: unknown[] = [ns, qEmb, topK];
     if (o.kind) { params.push(o.kind); conds.push(`kind = $${params.length}`); }

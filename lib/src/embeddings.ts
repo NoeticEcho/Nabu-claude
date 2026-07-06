@@ -93,10 +93,12 @@ export class Embedder {
     return v!;
   }
 
-  /** Эмбеддинг поискового запроса. */
-  async embedQuery(text: string): Promise<number[]> {
-    // Запрос обычно менее чувствителен, но применяем тот же гейт консервативно (private).
-    this.assertPrivacy("private");
+  /** Эмбеддинг поискового запроса. visibility = чувствительность ЗАПРОСА (не результатов):
+   *  поиск по публичной/библиотечной базе — 'default' (можно на remote-эмбеддер); поиск по личной
+   *  памяти — 'private' (remote только с NABU_EMBED_ALLOW_REMOTE=1). R7-G3: раньше было жёстко
+   *  'private' → на облачном эмбеддере ЛЮБОЙ поиск (даже по default-библиотеке) падал отказом. */
+  async embedQuery(text: string, visibility: Visibility = "private"): Promise<number[]> {
+    this.assertPrivacy(visibility);
     const [v] = await this.embedInputs([this.prefix(text, "query")]);
     return v!;
   }

@@ -57,7 +57,17 @@ export class DomainClassifier {
   private async ensure(): Promise<void> {
     if (this.domainVecs) return;
     const tax = [...DOMAIN_TAXONOMY, ...loadCustom()];
-    const hash = createHash("sha1").update(tax.map((t) => t.domain + "|" + t.desc).join("\n")).digest("hex").slice(0, 12);
+    // R7-E6: ключ кэша включает МОДЕЛЬ/dim/провайдер эмбеддинга, не только таксономию. Иначе смена
+    // OLLAMA_EMBED_MODEL/OPENAI_EMBED_MODEL/NABU_EMBED_DIM оставляла старые векторы доменов в другом
+    // пространстве → cosine по префиксу давал мусор, почти всё падало в 'general'.
+    const embedSig = [
+      process.env.NABU_EMBED_PROVIDER || "ollama",
+      process.env.OPENAI_EMBED_MODEL || process.env.OLLAMA_EMBED_MODEL || "",
+      this.embedder.dim,
+    ].join("|");
+    const hash = createHash("sha1")
+      .update(embedSig + "\n" + tax.map((t) => t.domain + "|" + t.desc).join("\n"))
+      .digest("hex").slice(0, 12);
     // Кэш векторов доменов в файле: 19 эмбеддингов считаются ОДИН раз навсегда (на слабом CPU дорого),
     // дальше все процессы (CLI+демон) читают из файла. Инвалидация — по хэшу таксономии.
     const home = process.env.NABU_HOME || join(process.env.HOME || process.env.USERPROFILE || ".", "nabu");
