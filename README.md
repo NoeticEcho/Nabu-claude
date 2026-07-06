@@ -9,14 +9,16 @@
 [Русская версия →](README.ru.md) · [Лендинг (RU) →](docs/LANDING.md) · [Quick start](#quick-start) · [How it works](#how-it-works) · [Privacy](#privacy-by-architecture) · [Docs](docs/ZERO_CONFIG.md)
 
 Nabu is not another chatbot that forgets you after one message. It is a **team of
-specialised AI agents** — 9 domain "ministers", entrepreneur specialists and a 73-agent roster —
+specialised AI agents** — 9 domain "ministers", entrepreneur specialists and a 74-agent roster —
 that see your life as a whole, remember everything you choose to tell them, debate
 hard questions collegially, and answer with honest trade-offs instead of averages.
 
 - 🧠 **Brain = Claude Code.** Your existing Claude subscription does the reasoning.
   No extra API keys, no per-token bills.
 - 🏠 **Your data stays home.** Postgres + pgvector + TypeDB run in local Docker;
-  embeddings are computed by a local model (Ollama). One command sets it all up.
+  embeddings are computed by a local model (Ollama) by default. One command sets it all up.
+  (Optionally point embeddings at your own OpenAI-compatible server or a cloud provider —
+  private/vault content never leaves without an explicit opt-in; see Privacy.)
 - 🎖 **An adjutant, not an app.** Chat in the browser or in Telegram (text & voice);
   complex questions convene the Council; every risky action waits for **your** button press.
 
@@ -60,14 +62,14 @@ schemas, pulls the embedding model and runs a smoke test. Idempotent — run it 
 | 🔎 **Web research** | Agents use Claude Code's native `WebSearch`/`WebFetch` (no API keys) for fresh external facts, woven into answers with sources. Private/vault data never enters a web query — only the de-identified question. |
 | 🩺 **Health import** | `nabu import-health` parses Apple Health / Google Fit / generic CSV exports **locally** (no OAuth, no cloud) into metric series — trends, forecasts and the health minister see your real dynamics. |
 | 💳 **Finance import** | `nabu import-finance` parses bank CSV statements locally: auto-detects RU/EN formats, categorizes spending (~15 rules), dedupes on re-import. The finance minister finally sees real numbers. |
-| 🔌 **Integrations** | Declare external APIs as **connectors** (GET-only, path allowlist) — 34 curated free APIs in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md); webhooks in/out (HMAC, replay-protected) connect n8n / Activepieces / Zapier. Outbound automations fire only after **your** approval. |
+| 🔌 **Integrations** | Declare external APIs as **connectors** (GET-only, path allowlist) — 39 curated free APIs in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md); webhooks in/out (HMAC, replay-protected) connect n8n / Activepieces / Zapier. Outbound automations fire only after **your** approval. |
 
 ## How it works
 
 ```
 you ──► web chat / telegram ──► nabu daemon ──► claude -p (headless Claude Code)
                                                   │  nabu-orchestrator skill (adjutant)
-                                                  │  73 subagents · Council protocol
+                                                  │  74 subagents · Council protocol
                                                   ▼
               8 MCP servers (memory · pipeline · council · domain · analytics · improve · voice · connect)
                                                   ▼
@@ -87,6 +89,12 @@ runs on local models. Claude does the thinking; your machine does the rememberin
   reaches the database. Vault entries get **no embeddings at all** — not even local
   ones — and never enter the model context through routine paths. Local-LLM
   extraction (`extract_entities_local`) processes vault notes without Claude seeing the text.
+- **Embedding provider is yours to choose.** Default is local Ollama — nothing leaves the
+  machine. You may instead configure an OpenAI-compatible endpoint (your own private LLM
+  server, or a cloud provider) via `NABU_EMBED_PROVIDER`/`OPENAI_EMBED_BASE_URL`. A privacy
+  gate enforces the invariant: `vault` is never embedded, `private` never goes to a non-local
+  endpoint, and even `default` only reaches a remote endpoint with an explicit
+  `NABU_EMBED_ALLOW_REMOTE=1`. Point it at your own server and privacy is fully preserved.
 - **Localhost trust model.** The web server binds to `127.0.0.1` and rejects DNS-rebinding
   (Host check) and cross-origin browser requests (Origin/Sec-Fetch-Site) on state-changing
   endpoints. Any process on your machine that can reach the port is trusted by design — this is
@@ -104,7 +112,7 @@ runs on local models. Claude does the thinking; your machine does the rememberin
 `nabu backup` · `nabu schedule` · `nabu update` · `nabu doctor` · `nabu install-service` ·
 `nabu reset` · `nabu uninstall`
 
-Inside chat: 26 slash commands (`/nabu-ask`, `/nabu-council`, `/nabu-triage`,
+Inside chat: 27 slash commands (`/nabu-ask`, `/nabu-council`, `/nabu-triage`,
 `/nabu-index`, `/nabu-recall`, `/nabu-decide`, …) — see [docs/ZERO_CONFIG.md](docs/ZERO_CONFIG.md).
 
 ## Project layout
@@ -116,7 +124,7 @@ mcp/        8 MCP servers (narrow, typed tools)
 agents/     73 Claude Code subagents (ministers, pipeline, memory, creators, specialists)
 skills/     adjutant-orchestrator + domain packs (nabu-marketing)
 schema/     additive Postgres SQL + TypeDB TQL (local standalone stack)
-commands/   26 slash commands
+commands/   27 slash commands
 docs/       product docs (Russian) · ZERO_CONFIG.md · ROADMAP.md
 ```
 
@@ -134,7 +142,7 @@ Protocol, safety rules, and maintainer checklist: [docs/COMMONS.md](docs/COMMONS
 PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Ground rules in short:
 `cli/` stays zero-dependency; MCP tools stay narrow and typed; schemas stay
 additive; privacy invariants are non-negotiable; tests stay green
-(`npm test` — 70+ unit, `npm run test:hooks` — 47 guard cases).
+(`npm test` — 90+ unit, `npm run test:hooks` — 70 destructive + 28 web-privacy cases).
 
 ## License
 

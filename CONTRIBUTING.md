@@ -50,7 +50,7 @@ Keep the tree green. CI-relevant commands:
 | Command | What it checks | Needs a live stack? |
 |---|---|---|
 | `npm test` | 34 unit tests (stats, personality, postgres helpers, lib units, vault) | no |
-| `npm run test:hooks` | 47 guard-hook cases (destructive-command protection) | no |
+| `npm run test:hooks` | 70 destructive-guard + 28 web-privacy cases | no |
 | `npm run test:db` | integration tests against a running DB | **yes** (`.env` + Docker stack) |
 | `npm run eval` | agent/behavior evals (`evals/runner.mjs`) | no (add `--mode live --judge` for live) |
 | `npm run typecheck` | `tsc -b` type check | no |

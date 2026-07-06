@@ -9,7 +9,7 @@
 [English version →](README.md) · [Быстрый старт](#быстрый-старт) · [Приватность](#приватность-как-архитектура) · [Документация](docs/ZERO_CONFIG.md)
 
 Nabu — это не ещё один чат-бот, который забывает вас через сообщение. Это **команда
-специализированных ИИ-агентов**: 9 доменных «министров», специалисты для предпринимателя и в сумме 73 агента
+специализированных ИИ-агентов**: 9 доменных «министров», специалисты для предпринимателя и в сумме 74 агента
 обработки, которые видят вашу жизнь целиком, помнят всё, что вы решили им доверить,
 коллегиально обсуждают сложные вопросы и отвечают с честными trade-off'ами, а не
 усреднённой кашей.
@@ -76,7 +76,7 @@ irm https://raw.githubusercontent.com/noeticecho/nabu-claude/master/scripts/inst
 `nabu backup` · `nabu schedule` · `nabu update` · `nabu doctor` · `nabu install-service` ·
 `nabu reset` · `nabu uninstall`
 
-В чате: 26 слэш-команд (`/nabu-ask`, `/nabu-council`, `/nabu-triage`, `/nabu-index`,
+В чате: 27 слэш-команд (`/nabu-ask`, `/nabu-council`, `/nabu-triage`, `/nabu-index`,
 `/nabu-recall`, `/nabu-decide`, …) — подробно в [docs/ZERO_CONFIG.md](docs/ZERO_CONFIG.md).
 
 ## Структура проекта
@@ -85,10 +85,10 @@ irm https://raw.githubusercontent.com/noeticecho/nabu-claude/master/scripts/inst
 cli/        zero-dependency CLI, демон, веб-чат, telegram-бот
 lib/        TypeScript-ядро: репозитории, vault-шифрование, статистика, движок личности
 mcp/        8 MCP-серверов (узкие типизированные tools)
-agents/     73 субагента Claude Code (министры, конвейер, память, созидатели, специалисты)
+agents/     74 субагента Claude Code (министры, конвейер, память, созидатели, специалисты)
 skills/     skill адъютанта-оркестратора
 schema/     аддитивные Postgres SQL + TypeDB TQL (локальный standalone-стек)
-commands/   26 слэш-команд
+commands/   27 слэш-команд
 docs/       продуктовая документация · ZERO_CONFIG.md · ROADMAP.md
 ```
 

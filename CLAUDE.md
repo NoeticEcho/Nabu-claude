@@ -75,12 +75,14 @@ Batch (индексация) → прямое подключение; интер
 
 ## Команды
 
-26 команд. Ядро: `/nabu-init`, `/nabu-index` (папка → база знаний), `/nabu-ask`, `/nabu-council`,
+27 команд. Ядро: `/nabu-init`, `/nabu-index` (папка → база знаний), `/nabu-ask`, `/nabu-council`,
 `/nabu-decide`, `/nabu-new-agent`, `/nabu-recall`, `/nabu-consolidate`, `/nabu-voice`, `/nabu-agents`,
 `/nabu-review`, `/nabu-triage`. Созидание/само-улучшение/расписание: `/nabu-build`, `/nabu-digest`,
 `/nabu-cron`, `/nabu-research`, `/nabu-scout`, `/nabu-evaluate`, `/nabu-feedback`, `/nabu-metrics`.
 Commons (федеративное самоулучшение, opt-in, `docs/COMMONS.md`): `/nabu-propose`, `/nabu-vote`,
 `/nabu-contribute`, `/nabu-review-pr` — merge всегда за человеком-мейнтейнером.
+Прочее: `/nabu-library` (справочные источники, `docs/LIBRARY.md`), `/nabu-onboard` (первичная
+настройка), `/nabu-tasks` (задачи/цели/привычки/квесты доменного слоя).
 
 ## Рабочие правила
 

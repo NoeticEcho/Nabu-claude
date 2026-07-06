@@ -1,7 +1,7 @@
 {
   "name": "nabu-claude",
   "version": "1.11.0",
-  "description": "Nabu-claude — личный ИИ-Совет для всех сфер жизни внутри Claude Code: 73 агента (9 министров, специалисты, конвейер) как субагенты; адъютант-оркестратор — skill. Локальный standalone-стек (docker, zero-config), workspace ~/nabu, проактивные задачи, самоулучшение (Commons).",
+  "description": "Nabu-claude — личный ИИ-Совет для всех сфер жизни внутри Claude Code: 74 агента (9 министров, специалисты, конвейер) как субагенты; адъютант-оркестратор + 3 доменных skill-пака (marketing/product/sales). Локальный standalone-стек (docker, zero-config), workspace ~/nabu, проактивные задачи, самоулучшение (Commons).",
   "skills": [
     "skills/nabu-orchestrator",
     "skills/nabu-marketing",

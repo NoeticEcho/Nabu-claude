@@ -1,6 +1,7 @@
 // nabu-memory MCP server — узкие типизированные операции над 7 типами памяти
 // (Postgres+pgvector) и графом (TypeDB). Никакого сырого SQL/TQL наружу. Структурированные
-// результаты. private/vault эмбеддятся локально (Ollama). Высокорисковых side-effect'ов нет:
+// результаты. Приватность эмбеддингов: vault не эмбеддится вовсе; private — только локально
+// (Ollama); default может уходить на настроенный endpoint (гейт NABU_EMBED_ALLOW_REMOTE). Высокорисковых side-effect'ов нет:
 // это персональная память пользователя (класс write_local/read внутри его namespace).
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -28,7 +29,7 @@ reg(
   {
     title: "Запомнить эпизод",
     description:
-      "Сохранить эпизодическое событие (что произошло, кто участвовал, эмоция, контекст). Эмбеддинг локальный для private/vault. Возвращает id.",
+      "Сохранить эпизодическое событие (что произошло, кто участвовал, эмоция, контекст). Vault не эмбеддится (шифруется); private — локально; default может эмбеддиться настроенным endpoint. Возвращает id.",
     inputSchema: {
       event: z.string().min(1).describe("Что произошло"),
       actors: z.array(z.string()).default([]).describe("Кто участвовал"),

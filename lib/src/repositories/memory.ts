@@ -1,5 +1,7 @@
-// Реализация MemoryPort на Postgres + pgvector + локальные эмбеддинги (Ollama).
-// Все операции скоупятся по namespace. private/vault эмбеддятся локально (единственный путь).
+// Реализация MemoryPort на Postgres + pgvector.
+// Все операции скоупятся по namespace. Приватность эмбеддингов: vault НЕ эмбеддится вовсе
+// (embedding=null + шифрование); private эмбеддится только локально (Ollama); default может уходить
+// на настроенный OpenAI-совместимый endpoint (embeddings.assertPrivacy — гейт NABU_EMBED_ALLOW_REMOTE).
 
 import type { Postgres } from "../db/postgres.js";
 import type { Embedder } from "../embeddings.js";
