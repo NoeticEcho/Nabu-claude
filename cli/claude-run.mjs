@@ -44,6 +44,22 @@ export function buildClaudeArgs({ text, resumeSessionId, mcpConfigPath, repoRoot
 // Единый разбор NDJSON-потока `--output-format stream-json` (аудит R6, M16): построчный фрейминг
 // был скопирован в оба моста. push(chunk) вызывает onEvent на каждой полной JSON-строке; flush() —
 // на «хвосте» без \n (последнее событие на close). Битая строка/битое событие не роняют разбор.
+// Per-key async-мьютекс (R7-E3): роль-разговоры conv-<role> делят ОДИН claudeSessionId между
+// web и Telegram. Два одновременных сообщения в один conv спавнили `claude --resume <тот же id>`
+// параллельно → конкурентная запись файла сессии Claude Code → переплетение/потеря истории.
+// Оба моста живут в одном процессе демона, поэтому module-level Map — общий лок. Сериализует
+// вызовы по ключу (conversationId): второй ждёт завершения первого.
+const _lockChains = new Map();
+export function withConversationLock(key, fn) {
+  if (!key) return Promise.resolve().then(fn); // без ключа — без сериализации
+  const prev = _lockChains.get(key) || Promise.resolve();
+  const run = prev.then(() => fn(), () => fn()); // запускаем после предыдущего (его исход игнорим)
+  const chain = run.then(() => {}, () => {});    // хвост для следующего ждущего (без проброса ошибки)
+  _lockChains.set(key, chain);
+  chain.finally(() => { if (_lockChains.get(key) === chain) _lockChains.delete(key); });
+  return run;
+}
+
 export function makeNdjsonParser(onEvent) {
   let buf = "";
   const emit = (line) => {

@@ -18,7 +18,7 @@ import { dirname, join } from "node:path";
 import { allSharedConvs, isSharedConv, convTitle, roleOfConv } from "./conversations.mjs";
 
 const CHILD_TIMEOUT_MS = 10 * 60 * 1000; // kill a stuck Claude after 10 minutes
-import { buildClaudeArgs, makeNdjsonParser } from "./claude-run.mjs";
+import { buildClaudeArgs, makeNdjsonParser, withConversationLock } from "./claude-run.mjs";
 
 // ---------------------------------------------------------------------------
 // Структурированный JSONL-лог (${nabuHome}/.nabu/logs/chat.jsonl, ротация 5МБ).
@@ -624,6 +624,10 @@ async function handleChat(req, res, opts) {
     // Файлы уже в workspace (cwd=nabuHome) — /api/file их отдаёт напрямую, переносить не нужно.
     return [...after].filter((f) => !filesBefore.has(f) && isDoc(f)).slice(0, 5);
   };
+  // R7-E3: сериализуем ВЕСЬ обмен по thread.id (чтение sessionId → claude --resume → запись
+  // нового sessionId). Роль-разговоры делят один claudeSessionId с Telegram (тот же процесс
+  // демона, общий лок в claude-run.mjs) — параллельный --resume портил бы файл сессии.
+  await withConversationLock(thread.id, async () => {
   const { sessionId, costUsd, errored, fullText } = await runClaudeExchange({
     res,
     claudeBin,
@@ -708,6 +712,7 @@ async function handleChat(req, res, opts) {
   } catch {
     // best-effort persistence; the stream already ended
   }
+  }); // конец withConversationLock(thread.id)
 }
 
 function createRequestHandler(opts) {
