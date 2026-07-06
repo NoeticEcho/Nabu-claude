@@ -1,5 +1,5 @@
 {
-  "version": "1.11.0",
+  "version": "1.12.0",
   "description": "Полный реестр агентов Nabu-claude: 44 агента основного каталога Nabu (agents/registry.json) по слоям + Совет из 9 доменных министров + функциональные агенты коллегиальности + оркестратор builder + материализованные специалисты-созидатели под work (entrepreneurship, software-dev, web-dev, copywriting). Дубли сведены (см. _notes).",
   "_notes": {
     "shared_roles": "Роли Nabu и Nabu-claude совпадают и НЕ дублируются: Critic (Nabu #03) = функциональный critic; Librarian (#16), Context Retriever (#17) = слой памяти; Entity Extractor (#08) = индексация; Transcriber (#06) = voice-transcriber. Адъютант надстроен над Conductor (#01).",

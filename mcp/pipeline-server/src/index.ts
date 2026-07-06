@@ -13,7 +13,7 @@ import { homedir } from "node:os";
 import { buildDepsOrExit, installGracefulShutdown, ok, degraded, fail, wrap, type McpToolResult } from "@nabu/lib";
 
 const deps = buildDepsOrExit("nabu-pipeline");
-const server = new McpServer({ name: "nabu-pipeline", version: "1.11.0" });
+const server = new McpServer({ name: "nabu-pipeline", version: "1.12.0" });
 
 /** true, если URL указывает на loopback/приватный хост (безопасно слать private/vault-текст). */
 function isLocalHost(url: string): boolean {

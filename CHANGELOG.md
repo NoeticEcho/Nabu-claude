@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] — 2026-07-06
+### Added
+- **Провайдер эмбеддингов (не только Ollama).** Nabu умеет считать эмбеддинги через любой
+  **OpenAI-совместимый API** — свой приватный LLM-сервер или облако (Jina, OpenAI, GPTunnel и т.п.),
+  развязывая Nabu и модель по разным машинам. Гейт приватности: `vault` не эмбеддится вовсе, `private`
+  — только локально, `default` уходит на удалённый endpoint лишь при `NABU_EMBED_ALLOW_REMOTE=1`. Env:
+  `NABU_EMBED_PROVIDER`/`OPENAI_EMBED_BASE_URL`/`_MODEL`/`_API_KEY`/`NABU_EMBED_DIM`. Ретрай с backoff
+  и hard-timeout на транзиентных сбоях. (docs/LIBRARY.md.)
+- **Форматы DOCX/ODT/RTF/EPUB** при индексации (заметок и библиотеки) — через pandoc, с fallback на
+  unzip для .docx. Всё извлекается локально.
+- **Умный чанкинг.** Чанки режутся по границам предложений/абзацев (предложения не рвутся посередине);
+  контент без границ (JSON/код) гарантированно не даёт сверхбольших чанков. Опц. семантический чанкинг
+  (`NABU_SEMANTIC_CHUNK=1`).
+- **Автоопределение доменов** знаний (zero-shot по эмбеддингам) — один источник распределяется по
+  доменам по-чанково, кэш векторов доменов (инвалидация по модели/dim).
+- **Safety-eval гейт в CI.** 11 offline privacy-фикстур + `evals/runner.mjs --require=<набор>`
+  (пустой набор/провал → ненулевой exit) как обязательный шаг CI.
+
+### Fixed
+- **Стабильность демона (R7).** Единый event-loop (web-чат + Telegram + планировщик) больше не
+  замерзает: тяжёлые `spawnSync` (git fetch, установка Whisper, self-update, docker/бэкап,
+  unzip/pdftotext/tesseract) переведены на async; первый update-check отложен со старта.
+- **Гонка claude-сессии** между web и Telegram (общий разговор) — per-conversation мьютекс.
+- **Обходы guard-хука**: `find | xargs rm -rf` и `DELETE/UPDATE … -- where`/`audit_where` теперь
+  блокируются.
+- **Команда `nabu`** доступна после установки (симлинк + авто-PATH); `.env` дефолт из workspace;
+  права `.env` → 0600.
+- Импорт: Google Fit «Heart Points» больше не путается с ЧСС; finance «1,000» = 1000, не 1.0.
+- FK-индексы (миграция 018); + россыпь мелких фиксов корректности (см. AUDIT.md, Round 7).
+
+### Docs
+- Устранено противоречие «единственный skill»; актуализированы числа (74 агента, 27 команд, guard-
+  кейсы, API); раскрыт путь удалённых эмбеддингов в разделе Privacy.
+
 ## [1.11.0] — 2026-07-05
 ### Added
 - **Индексация папок с прогрессом + ZIP.** `nabu index <папка|архив.zip> [--domain= --library]` —
