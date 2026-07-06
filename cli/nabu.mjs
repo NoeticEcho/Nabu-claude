@@ -63,7 +63,7 @@ const CHAT_PORT = Number(process.env.NABU_CHAT_PORT || 4517);
 const DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001";
 const EMBED_MODEL = "nomic-embed-text-v2-moe:latest";
 // Узкий allowlist для headless-запусков claude (чат/расписание): MCP Nabu + чтение + субагенты.
-import { ALLOWED_TOOLS, DISALLOWED_TOOLS, ISOLATION_ARGS } from "./claude-run.mjs";
+import { toolPolicy, ISOLATION_ARGS } from "./claude-run.mjs";
 
 // ── утилиты ──
 const IS_WIN = platform() === "win32";
@@ -669,7 +669,8 @@ function runClaudeJob(job, log) {
   const mcpCfg = join(STATE_DIR, "mcp-config.json");
   // --output-format json: единый JSON с полем result — чтобы итог можно было запушить
   // пользователю (Telegram) и сохранить в job-results.json (проактивность, ROADMAP P0-3).
-  const args = ["-p", job.prompt, "--output-format", "json", ...(existsSync(mcpCfg) ? ["--mcp-config", mcpCfg] : []), "--allowedTools", ALLOWED_TOOLS, "--disallowedTools", DISALLOWED_TOOLS, ...ISOLATION_ARGS];
+  const { allowed: jobAllowed, disallowed: jobDisallowed } = toolPolicy();
+  const args = ["-p", job.prompt, "--output-format", "json", ...(existsSync(mcpCfg) ? ["--mcp-config", mcpCfg] : []), "--allowedTools", jobAllowed, ...(jobDisallowed ? ["--disallowedTools", jobDisallowed] : []), ...ISOLATION_ARGS];
   const child = spawn(CLAUDE_BIN, args, {
     cwd: existsSync(NABU_HOME) ? NABU_HOME : REPO_ROOT, stdio: ["ignore", "pipe", "pipe"], env: process.env, windowsHide: true,
   });

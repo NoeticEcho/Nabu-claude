@@ -2,9 +2,8 @@
 // Раньше ALLOWED_TOOLS и изоляция-флаги дублировались в nabu.mjs, chat-server.mjs, telegram-bot.mjs
 // и должны были совпадать вручную — дрейф ослаблял бы security-постуру. Теперь — одно место.
 
-// Узкий allowlist: 8 nabu-MCP серверов + веб-поиск + чтение/запись/навигация + субагенты.
-// НЕТ Bash/Edit (инвариант #7): демон не исполняет произвольные команды и не правит файлы in-place.
-export const ALLOWED_TOOLS = [
+// Базовый узкий allowlist: 8 nabu-MCP серверов + веб-поиск + чтение/запись/навигация + субагенты.
+const CORE_ALLOWED = [
   "mcp__nabu-memory",
   "mcp__nabu-pipeline",
   "mcp__nabu-council",
@@ -20,18 +19,33 @@ export const ALLOWED_TOOLS = [
   "Glob",
   "Grep",
   "Task",
-].join(",");
+];
 
-// Жёстко ЗАПРЕЩЁННЫЕ инструменты (R7-hotfix): демон-дети headless — интерактивных approval-карточек
-// Claude Code им показать негде (в Telegram/веб нет UI для гейта). Поэтому:
-//  • Bash/Edit/NotebookEdit — исполнение произвольных команд/правка файлов запрещены (инвариант #7:
-//    демон не исполняет shell и не правит код in-place; реальные внешние действия — через Nabu-
-//    approval, кнопки в Telegram, это ДРУГОЙ слой и он сохраняется).
-//  • Workflow — динамические воркфлоу требуют интерактивной карточки «Review dynamic workflow»,
-//    которую в headless не подтвердить → адъютант зависал. Запрет заставляет использовать Task-
-//    субагентов (они в allowlist, идут без подтверждений) — тот же результат, без гейта и без
-//    неконтролируемого веера дорогих агентов.
-export const DISALLOWED_TOOLS = ["Bash", "Edit", "NotebookEdit", "Workflow", "KillShell"].join(",");
+// «Относительно опасные» инструменты: произвольный shell, правка файлов in-place, динамические
+// воркфлоу. По умолчанию ЗАПРЕЩЕНЫ (инвариант #7: демон не исполняет shell и не правит код;
+// реальные внешние действия — через Nabu-approval, кнопки в Telegram, это ОТДЕЛЬНЫЙ слой).
+//
+// EXPERIMENTAL: `NABU_DAEMON_ALLOW_DANGEROUS=1` РАЗРЕШАЕТ их (Bash/Edit/Workflow). Осознанное решение
+// владельца для DEV/SANDBOX-контекста (вся разработка и продовое развёртывание — в агентной песочнице).
+// Флаг ослабляет инвариант #7 — включать ТОЛЬКО в изолированной среде. Дефолт (флаг снят) — безопасен.
+const DANGEROUS = ["Bash", "Edit", "NotebookEdit", "Workflow"];
+
+// ВАЖНО: политика вычисляется в момент ВЫЗОВА, а не при импорте. systemd не грузит ~/Nabu/.env, а
+// демон подхватывает его через loadEnvIntoProcess() уже ПОСЛЕ статического импорта — значит флаг из
+// .env надо читать динамически (иначе бы всегда брался дефолт). Возвращает {allowed, disallowed}.
+export function toolPolicy() {
+  const allowDangerous = process.env.NABU_DAEMON_ALLOW_DANGEROUS === "1";
+  return {
+    allowed: [...CORE_ALLOWED, ...(allowDangerous ? DANGEROUS : [])].join(","),
+    // Под bypassPermissions доступно всё, что НЕ в disallow. Дефолт: запрещаем опасные + KillShell.
+    // При ALLOW_DANGEROUS список пуст — Bash/Edit/Workflow доступны.
+    disallowed: allowDangerous ? "" : [...DANGEROUS, "KillShell"].join(","),
+  };
+}
+
+// Обратная совместимость (снапшот на момент импорта — для не-демонных путей, где env уже загружен).
+export const ALLOWED_TOOLS = toolPolicy().allowed;
+export const DISALLOWED_TOOLS = toolPolicy().disallowed;
 
 // Изоляция от внешних плагинов/хуков/облака: только Nabu из репо, только наши MCP-серверы.
 // --strict-mcp-config: игнорировать любые MCP из user-global настроек.
@@ -48,8 +62,9 @@ export function buildClaudeArgs({ text, resumeSessionId, mcpConfigPath, repoRoot
   const args = ["-p", text, "--output-format", "stream-json", "--verbose"];
   if (resumeSessionId) args.push("--resume", resumeSessionId);
   if (mcpConfigPath) args.push("--mcp-config", mcpConfigPath);
-  args.push("--allowedTools", ALLOWED_TOOLS);
-  args.push("--disallowedTools", DISALLOWED_TOOLS); // hard-exclude даже под bypassPermissions
+  const { allowed, disallowed } = toolPolicy(); // читаем env в момент вызова (после loadEnvIntoProcess)
+  args.push("--allowedTools", allowed);
+  if (disallowed) args.push("--disallowedTools", disallowed); // hard-exclude (если что-то запрещаем)
   args.push(...ISOLATION_ARGS);
   if (repoRoot) args.push("--plugin-dir", repoRoot);
   return args;
