@@ -1,157 +1,144 @@
-# AUDIT.md — Полный аудит кодовой базы (Round 6, 2026-07-05)
+# AUDIT.md — Round 7 (2026-07-06)
 
-Метод: эталон из документации (Этап 1) → 5 параллельных аудит-агентов по зонам
-(`lib/`, `cli/`, `mcp/`, инфраструктура, агенты/доки) → верификация ключевых находок чтением кода
-и запуском guard'ов на крафт-входах. Раунды 1–5 — в истории git (v0.13.1…v1.0.2) и `AUDIT_round3-5.md.bak`.
+Полный аудит кодовой базы Nabu-claude v1.11.0. Проведён 6 параллельными аудиторами по зонам
+(lib · cli · mcp · agents/skills/commands · schema/hooks/scripts · соответствие доке) + верификатор
+спецификации Claude Code. Ключевые находки **проверены вживую** (пометка ✓verified). Предыдущие
+раунды (R1–R6) закрыты (R6 → `AUDIT_R6_archive.md`); здесь актуальное состояние на master @ `f6709e8`.
 
-Severity: **critical** (ломает заявленную функциональность/приватность) · **major** · **minor**.
+Baseline (зелёный до правок): `build 0` · 86 unit · 59 guard + 28 web-privacy hooks.
 
-## Эталон (что приложение ДОЛЖНО делать)
-1. Zero-config локальный запуск (docker-стек, идемпотентный `nabu init`, аддитивные схемы).
-2. Мозг — Claude Code; тяжёлое (эмбеддинги/транскрипция/vision) — локально, без внешних API-ключей.
-3. Адъютант + Совет (триаж → министры → синтез с trade-off'ами → critic; решение за пользователем).
-4. 7 типов памяти + личность; вся память оркеструется самим Nabu.
-5. Приватность архитектурой: visibility `default/private/vault`; vault E2E-шифр, без эмбеддингов, не в облако/логи/модель; эмбеддинги только локально; 127.0.0.1-only.
-6. Harness-дисциплина: узкие типизированные tools; approval вне модели для write/external/financial/destructive; бюджеты циклов.
-7. Границы компетенции + wellbeing.
-8. Дашборд, планировщик, бэкапы, самообновление.
-9. Импорт health/finance локально; коннекторы (GET-only, allowlist) + вебхуки (HMAC); веб-поиск с де-идентификацией.
-10. Nabu Commons (opt-in, off by default; merge только человеком).
+Severity: **critical** — ломает функциональность/приватность · **major** — заметный дефект/риск ·
+**minor** — качество/косметика/устаревшие числа.
 
 ---
 
-## 1. Несоответствие задаче (spec-mismatch)
+## Этап 1: Эталон (что приложение ДОЛЖНО делать)
 
-### CRITICAL
-- **C1. Модель может одобрить собственное высокорисковое действие (self-approval loop).**
-  `mcp/memory-server/src/index.ts:326` `resolve_approval` — обычный MCP-tool в тулсете модели, рядом с `request_approval` (:286). `decided_by='user'` (`lib/src/repositories/governance.ts:90`) — метка, не enforcement. Модель может: `request_approval` → `resolve_approval({decision:"approved"})` → `connect.trigger_webhook`. Весь гейт external/financial/destructive (инвариант #7) схлопывается. UI-путь `POST /api/approvals/:id` резолвит через репозиторий напрямую — MCP-tool избыточен и опасен.
-- **C3. `.claude-plugin/plugin.json` регистрирует 20/26 команд и 1/4 скилла.**
-  Явный список путей. Не грузятся: `nabu-contribute`, `nabu-onboard`, `nabu-propose`, `nabu-review-pr`, `nabu-tasks`, `nabu-vote` (вся Commons-ветка + `/nabu-tasks`, `/nabu-onboard`) и скилл-паки `nabu-marketing/product/sales` (их вызывает `SKILL.md:141-144`). Объясняет прежний «Unknown command: /nabu-tasks».
-
-### MAJOR
-- **M17. Доменные write-tools не проходят approval; класса `write` нет в governance.** `mcp/domain-server/src/index.ts` (`update_task_status:48`, `award_xp:117`, `log_metric:102`, `add_task:33` …) пишут автономно. `GovernanceRepository.RiskClass` (`governance.ts:8`) не содержит `write`/`draft`. Защитимо как «узкий personal-write», но буквальное расхождение с таблицей классов риска — нужно решение + документирование.
-- **M18. ARCHITECTURE.md устарел (описывает удалённый shared-режим).** `:3,11,12,113` «та же БД Supabase», «ещё один клиент»; `:81,91` «1 skill, 19 commands, 7 mcpServers» (нет `connect`). Реальность: standalone, 8 серверов, 26 команд.
-- **M19. `agents/registry.json` устарел:** `version:"0.8.0"` (везде 1.9.0), `_notes.servers` «7 MCP-серверов» без `connect`.
-
-### MINOR
-- `lib/src/config.ts:128` `sharedDbWithMainNabu ?? true` — дефолт против standalone (поле не читается).
-- Остаточные «Supabase»: `CLAUDE.md:56`, комментарии `lib/src/db/postgres.ts:1-2,17,25`, `index.ts:173`, `domain.ts:2`; `.claude-plugin/plugin.json:81`.
+1. **Локальный standalone-стек**: Postgres+pgvector + TypeDB + Ollama в docker; zero-config `nabu init`; данные не покидают машину (кроме явных исключений).
+2. **Мозг — Claude Code**: рассуждение — headless `claude -p`; тяжёлое (эмбеддинги, транскрипция) — локально/делегируемо.
+3. **Совет 9 министров + функциональные агенты**: триаж адъютантом → единодоменный/многодоменный → коллегиальный синтез с trade-off'ами → critic; Agent Teams + fallback.
+4. **7 типов памяти** (Postgres/pgvector + TypeDB) + библиотека (`kind=library`, отдельно от personal) + личность из числовых черт.
+5. **Приватность по архитектуре**: 3 уровня visibility; vault — E2E AES-256-GCM и **без эмбеддингов вовсе**; private/vault не уходят в облако/логи/аналитику; эмбеддинги локально (Ollama) — облако только для `default` и под явным opt-in.
+6. **Harness-дисциплина**: узкие типизированные MCP-tools; высокорисковые (external/financial/destructive) — через approval вне модели; бюджеты циклов; guard-хук на деструктив.
+7. **Клиенты**: web-chat (SSE, PWA) + Telegram (текст/голос→Whisper локально); ответы стримятся; файлы в обе стороны.
+8. **Демон**: планировщик (триаж/дайджест/feedback) + web-сервер + Telegram-поллинг; результаты пушатся пользователю.
+9. **CLI**: init/start/stop/status/logs/chat/stats/backup/schedule/update/doctor/reset/uninstall + index/library + import-health/import-finance.
+10. **Интеграции/Commons**: коннекторы GET-only + allowlist, вебхуки HMAC; федеративное самоулучшение (opt-in, merge только человеком).
 
 ---
 
-## 2. Ошибки (bugs)
+## Этап 2: Находки по категориям
 
-### MAJOR
-- **M13. `writeJson`/`writeState` не потокобезопасны в одном процессе (PID-only tmp).** `nabu.mjs:162` `${p}.${process.pid}.tmp` — `job-results.json` пишется гонкой из 3 путей (`:528`,`:656`,`:675-678`); `proactivity.json`(:790), `schedule-state.json`(:516). `telegram-bot.mjs:135` `writeState`/`persist()` из параллельных топик-цепочек (`:1296-1304`) → битый `telegram-state.json`/потерянный `offset`. Образец — `chat-server.mjs:266` (UUID-суффикс).
-- **M13b. Общий mutable `state` в telegram-bot** читается-мутируется из параллельных цепочек без лока (`telegram-bot.mjs:330`).
-
-### MINOR
-- `domain.ts:207-220` `logHabit` — `insert into habit_logs` безусловный, нет unique-констрейнта → дубли, портят стрик.
-- `health-import.ts:323-333` дедуп метрик без unique-констрейнта → конкурентный импорт задвоит.
-- `typedb.ts:107-109` `close()` не сбрасывает `_available` → геттер врёт (само-лечится).
-- `connect-server:107` — двойное кодирование traversal (`%252e`) минует regex.
-- `nabu.mjs:1199-1201,1391-1394` backup/restore `docker stop typedb` без try/finally → контейнер остаётся off при падении.
-- `chat-server.mjs:643-663` конкурентные чаты могут неверно атрибутировать пойманные файлы.
+### 0. CRITICAL
+**Не найдено.** Приватность-инварианты соблюдены: vault не эмбеддится (`memory.ts` emb=null + шифрование; `knowledge.ts` запрещает vault-индексацию; recall исключает vault), private/vault→remote под гейтом; SQL параметризован везде (единственные интерполяции — из белых списков имён колонок); мульти-write атомарны (`Postgres.tx`).
 
 ---
 
-## 3. Gaps (edge cases / валидация / права)
+### 1. Несоответствие задаче (spec ↔ код)
 
-### CRITICAL
-- **C2. `guard-web-privacy.sh` не сканирует `url` WebFetch на PII/vault — только SSRF-хост.** `:24-29,77-82`. Проверено: `WebFetch url=…/collect?email=…&card=4276160012345678` → exit 0. Email/карта/vault в URL — прямой канал утечки (инвариант #2).
+| # | severity | где | расхождение |
+|---|---|---|---|
+| S1 | **major** | ARCHITECTURE.md:82 ↔ :90,:100; `.claude-plugin/plugin.json` | ✓verified. Внутреннее противоречие доки: «4 skills» vs «ЕДИНСТВЕННЫЙ skill — адъютант». Реально **4 skills** (nabu-orchestrator, nabu-marketing, nabu-product, nabu-sales). Утверждение «только адъютант — skill» ложно. |
+| S2 | **major** | README.md:19,77-78; README.ru.md:20; `lib/src/repositories/memory.ts:2`; `mcp/memory-server/src/index.ts:3,31` | ✓verified. «embeddings computed by a local model (Ollama)» и комменты «private/vault эмбеддятся локально (единственный путь)» — **устарели** после провайдер-фичи. Реально: есть удалённый OpenAI-совместимый путь (для `default`, под `NABU_EMBED_ALLOW_REMOTE=1`); vault **вообще не эмбеддится**. Инвариант не нарушен, но доки/комменты вводят в заблуждение. |
+| S3 | **major** | `commands/nabu-onboard.md`, `commands/nabu-tasks.md` | ✓verified. Две слэш-команды реализованы, но **не документированы** нигде. `nabu-library` есть в docs/LIBRARY.md, но отсутствует в списке CLAUDE.md. |
+| S4 | minor | README.md:70,116; README.ru.md:12; plugin.json | «73 subagents» → реально **74** `agents/*.md` (реестр 74/74). |
+| S5 | minor | README.md:107,119; CLAUDE.md:77; ARCHITECTURE.md:82 | «26 commands» → реально **27** `commands/*.md`. |
+| S6 | minor | README.md:137; CONTRIBUTING.md:53; docs/LANDING.md:85 | «47 guard cases» → реально **59** (test-guard.sh) + 28 (web-privacy); доки умалчивают web-privacy-набор. |
+| S7 | minor | README.md:63 | «34 curated free APIs» → в docs/INTEGRATIONS.md **39** строк каталога. |
+| S8 | minor | ARCHITECTURE.md §7 | Список слэш-команд неполон (нет triage/propose/vote/contribute/review-pr/library/onboard/tasks). |
 
-### MAJOR
-- **M1. База знаний игнорирует vault.** `knowledge.ts:55` `indexDocument` принимает `vault` (через `pipeline-server:207,266`), НЕ шифрует, ВСЕГДА эмбеддит (`:61`); `search:79` без visibility-фильтра → vault-чанк plaintext возвращается модели. Ложная защита.
-- **M2. `extract_entities_local` может отправить vault-plaintext с машины.** `pipeline-server:329,350` дешифрует vault-заметку и POST'ит plaintext на `OLLAMA_BASE_URL` без проверки loopback.
-- **M3. `listRecentEpisodes` возвращает vault сырым шифртекстом без фильтра.** `memory.ts:209-233` — footgun на дисциплине вызывающего.
-- **M4. `improve.update_proposal` — само-accept.** `improve-server:64` `decidedBy='user'` дефолт, model-callable; `improvement.ts:150` не гейтит статус `proposed`.
-- **M5. Нет auth на HTTP-эндпоинтах; approvals резолвит любой localhost.** `chat-server.mjs:1123-1142` `POST /api/approvals/:id` одобряет как `user:web`; `/api/about`(:1060), `/api/stats/details`(:940) отдают non-vault факты без auth. Нужен Origin-гейт + документировать localhost-модель.
-- **M6. Headless Claude `cwd=REPO_ROOT` + `Write`** (`chat-server.mjs:418`, `telegram-bot.mjs:237`) может перезаписать любой файл репо; захват ловит только НОВЫЕ top-level файлы. В планировщике (`nabu.mjs:638`) — без надзора.
-- **M8. У колонок `visibility` нет CHECK-констрейнта.** `episodic_memory:38`, `semantic_facts:56`, `knowledge_chunk`, `notes`, `sources`, `claims`. Опечатка `'Vault'` → трактуется non-vault → утечка. Дёшево: `check … in ('default','private','vault')` (NOT VALID).
-- **M9. SSRF-матчер хоста пропускает классы адресов.** `guard-web-privacy.sh:79`. allowed: `[fd00::1]`, `2130706433` (decimal 127.0.0.1), `fe80::`, IPv4-mapped, octal/hex, `http://0/`.
-- **M10. Телефон требует литерал `+`.** `:59-74`. allowed: `8 916 123 45 67` (RU) — частый случай, продукт RU-first.
-- **M14. Нет лимита одновременных Claude-детей.** `chat-server.mjs:587` — по ребёнку на запрос (до 10 мин); любой localhost → истощение ресурсов + траты.
-
-### MINOR
-- `chat-server.mjs:1050` `/api/file` traversal-гард не ловит backslash.
-- `guard-web-privacy.sh:64` карта только 4-4-4-4 (Amex 4-6-5 проходит).
-- `guard-destructive.sh` непокрыто: `chmod -R 000 /`, `> ~/.bashrc`, `mv /etc …`, `git push --mirror`, base64/indirection.
-- `voice-server:66` нет sandbox на `audioPath`; `connect-server` нет private-IP denylist на `base_url`.
-- `consult.ts` нет `open→expired`; `config.ts:63-74` не срезает inline-комменты `.env`; `stats.ts` `NaN`→`null`.
-- `000_standalone_bootstrap.sql:165-172` seed char_sheet безусловен → FK-ошибка на непустой users.
+**Проверено и ВЕРНО** (не расхождение): Council через Agent Teams+fallback; 7 типов памяти в схеме; library kind=library; scheduler jobs (enabled:false по умолчанию); backups retention 7; connectors GET-only + HMAC-вебхуки; import-health/finance; «Vault → no embeddings» (правда в коде); «logs never message content» (правда); docs/en/* существуют; CHANGELOG 1.11.0 совпадает.
 
 ---
 
-## 4. Недоделки (unfinished / hardcoded)
+### 2. Ошибки (баги, race, freeze, утечки)
 
-### MAJOR
-- **M12. Плейсхолдер-URL в инсталляторах — блокер релиза.** `install.sh:22-23` → `nabu-ai/…`, `install.ps1:12-13` → `noeticecho`. Разные орги; `release-prep.sh:36` грепает только `noeticecho`.
-- **M11. `test-web-privacy.sh` не в CI.** `ci.yml:30-31` гоняет только `test-guard.sh` → privacy-guard без регрессионной сети.
-
-### MINOR
-- `nabu.mjs:1590` хардкод docker-тегов; `nabu.mjs:59,60` + дубли моделей (`qwen3:4b`); `commands/nabu-propose.md:10`, `docs/LANDING.md`, `docs/LAUNCH.md:97` плейсхолдеры; `007_indexes.sql:9-13` dedup-TODO.
-
----
-
-## 5. Пустые/мёртвые функции
-
-### MINOR
-- `embeddings.ts:31` `_visibility` не используется; `config.embedding.{provider,model,privateOnly}` (`config.ts:129-134`) не читаются → мёртвая конфиг-поверхность (privacy-флаги no-op).
-- `local-brain.mjs:31-38` `LEGACY_FULL_ALLOWLIST` не используется.
-- `vault-crypto.ts:20-24` недостижимый `catch`; `index.ts:167-170`,`chat-server.mjs:1044-1046` смещённые JSDoc.
-- пустая директория `undefined/tg-conc/` в корне (артефакт литерала `"undefined"`).
-- MCP: `const result = ok;` дублируется в 4 серверах.
+| # | severity | файл:строка | проблема |
+|---|---|---|---|
+| E1 | **major** | `cli/nabu.mjs:618-619` | ✓verified. **Freeze демона**: в `tick()` синхронный `sh("git fetch")` + `rev-list` (сеть) блокирует единый event-loop → SSE-чат и Telegram-поллинг замирают на секунды. Срабатывает на КАЖДОМ старте (lastUpdateCheck=0) и раз в сутки. |
+| E2 | **major** | `cli/telegram-bot.mjs:825,829,832` | ✓verified. **Freeze до 10 мин**: `ensureWhisper()` при первом голосовом делает `spawnSync uv venv` (120с) + `uv pip install faster-whisper` (600с) синхронно → замораживает весь демон (web+все TG-топики+планировщик). |
+| E3 | **major** | `cli/chat-server.mjs:627-638` + `cli/telegram-bot.mjs:610-634` | **Race → порча claude-сессии**: роль-разговоры `conv-<role>` делят один `claudeSessionId` между web и Telegram. Два одновременных сообщения → параллельный `claude --resume <тот же id>` → конкурентная запись файла сессии → переплетение/потеря истории. `threadsLock` сериализует только запись JSON тредов, не обмен. |
+| E4 | **major** | `cli/nabu.mjs:844-845` | **Freeze на минуты**: `doUpdate(inDaemon:true)` при `auto_update=true` — `sh(npm install)`+`sh(npm run build)` синхронно в демоне перед само-рестартом. За opt-in, но симптом тяжёлый. |
+| E5 | major | `cli/nabu.mjs:1139,1163,1195`; `cli/telegram-bot.mjs:1142,1198,1291` | **Freeze**: ночной `cmdBackup()` в демоне зовёт `docker info/inspect` синхронно (секунды на занятом docker); TG `unzip`/`pdftotext`/`tesseract` синхронны — блок на больших файлах. |
+| E6 | **major** | `lib/src/domain-classify.ts:60-72` | Кэш `domain-vecs.json` инвалидируется только по хэшу таксономии, **не по модели/размерности**. Смена `OLLAMA_EMBED_MODEL`/`NABU_EMBED_DIM` → старые векторы, `cosine()` считает по min(len)-префиксу → мусор, почти всё в `general`. (Реально наблюдалось при переключениях модели.) |
+| E7 | minor | `lib/src/embeddings.ts:137-140` | `Promise.race` hard-timeout: `setTimeout` не очищается при успехе (спасает `unref`, но таймер висит ~125с). Нужен `clearTimeout` в `finally`. |
+| E8 | minor | `lib/src/health-import.ts:157,175` | Google Fit: колонка по подстроке «heart» → метрика `heart_rate`. Реальные «Heart Points/Minutes» (баллы активности) импортируются как удары/мин. |
+| E9 | minor | `lib/src/finance-import.ts:85-88` | `parseAmount`: значение только с запятой всегда десятичное. «1,000» (тысяча) → 1.0 — занижение в 1000× для банков с запятой-разделителем тысяч. |
+| E10 | minor | `lib/src/repositories/domain.ts:218-220,239` | `logHabit` при `already=true` возвращает `id:""` (пустая строка вместо id существующей строки лога). |
+| E11 | minor | `cli/chat-server.mjs:240-245` | `readThreads()` при повреждённом `chat-threads.json` → `[]`; следующий `upsertThread()` перезапишет файл одним тредом → **потеря всех прочих тредов** при транзиентной порче. |
+| E12 | minor | `lib/src/ics.ts:106,152` | `parseRRule` UNTIL: сравнение смешивает локальную серию и UTC-форму `...Z` → сдвиг на TZ-офсет, крайние вхождения могут отсекаться/просачиваться. |
 
 ---
 
-## 6. Качество (дублирование / архитектура / паттерны)
+### 3. Gaps (валидация, права, необработанные пути)
 
-### MAJOR
-- **M15. `ALLOWED_TOOLS` строится трижды** (`nabu.mjs:62`, `chat-server.mjs:21-37`, `telegram-bot.mjs:55-71`) — нет единого источника для security-постуры.
-- **M16. Мост `claude -p` переписан дважды** (`chat-server.mjs:401-581`, `telegram-bot.mjs:224-313`) — изоляция-флаги (`:414`/`:233`) синхронизируются вручную.
-- **M7. 4 не-build агента без `disallowedTools`** → наследуют Bash/Write/Edit: `capability-scout.md`, `effectiveness-evaluator.md`, `import-agent.md`, `research-assistant.md`. Против `SKILL.md:65` и инварианта #7.
-- **M-mcp. Три контракта ошибок в MCP.** `memory/connect/council/pipeline` — `reg()`+`wrap()`; `domain/improve` — inline `wrap()`; `analytics` — hand-rolled. `reg()`-каст дублируется в 4 файлах → в `@nabu/lib`.
-
-### MINOR
-- Эпизод-запись/file-capture копипаст между `chat-server`/`telegram-bot`; `dashboard.ts:35` копия `XP_ATTRS`; `user()` копипаст в 6 местах (privacy-critical); таксономия классов риска не совпадает (governance vs ARCHITECTURE); `personality.ts:59-61` нет kindness-floor (`min_kindness` нет; `min_honesty` в 6/24; `agent-creator.json` kindness=5); дубли spawn-обёрток; `npm install` вместо `npm ci`; docstring `transcribe.py` дрейф; ярлык «47 cases» (реально 59).
-
----
-
-## Верифицированно-OK (не находки)
-vault не эмбеддится (`memory.ts:89,118` `embedding=null`; `recall` фильтрует + дефолт `["default","private"]`); SQL параметризован; транзакции оборачивают мульти-write; `trigger_webhook` — атомарное single-use; pipeline path-sandbox крепкий; graceful shutdown; fail-closed мульти-профиль; SKILL.md протокол = ARCHITECTURE §4 + 9 инвариантов; 73/73 slug реестра → файлы; все tool-ссылки резолвятся.
-
----
-_Итог по исправлениям — в конце файла после Этапа 4._
+| # | severity | файл:строка | проблема |
+|---|---|---|---|
+| G1 | **major** | `scripts/hooks/guard-destructive.sh:76-83` | ✓verified (live ALLOW). Массовое удаление через `find … \| xargs rm -rf` **не блокируется** (rm-ветка требует цель в строке команды, а xargs берёт из stdin). |
+| G2 | **major** | `scripts/hooks/guard-destructive.sh:130` | ✓verified (live ALLOW). `DELETE FROM …` без WHERE обходится словом «where» где угодно: `DELETE FROM users; -- keep where` и `DELETE FROM audit_where` проходят. |
+| G3 | **major** | `lib/src/embeddings.ts:97-99` | ✓verified. `embedQuery()` безусловно `assertPrivacy("private")`. На удалённом эмбеддере без `NABU_EMBED_ALLOW_REMOTE=1` **любой семантический поиск** (recall/knowledge.search) бросает отказ — даже по `default`. Асимметрия: запись default разрешена, чтение — нет. |
+| G4 | minor | `cli/nabu.mjs:459-461` | `cmdDaemon()` безусловно перезаписывает PID_FILE (проверка живого демона только в `cmdStart`). Прямой `nabu daemon` при живом демоне → два `getUpdates` → Telegram 409, борьба за порт. |
+| G5 | minor | `cli/nabu.mjs:651-689` | `runClaudeJob()` спавнит `claude` без таймаута/kill (в web/TG есть 10-мин SIGKILL). Зависший scheduled-джоб — процесс-сирота навсегда. |
+| G6 | minor | `lib/src/mcp-result.ts:35-37` | `wrap(fn)` ловит только reject промиса. Синхронный throw до возврата уйдёт мимо `fail()`. Обернуть в `Promise.resolve().then(fn)`. |
+| G7 | minor | `lib/src/repositories/personality.ts:55-63` | `getTraits()` (public) возвращает сырые черты без `applyGuardrails` (floor honesty≥8/kindness). Только `render()` применяет пороги. |
+| G8 | minor | `lib/src/index.ts:133-167` | `buildDeps()` создаёт НОВЫЙ `pg.Pool` на каждый вызов; web-chat кэширует per-profile → N×`NABU_PG_POOL_MAX` соединений без вытеснения. |
+| G9 | minor | `cli/claude-run.mjs:35` + `chat-server.mjs:298` | web `/api/chat` ограничивает только тело 1МБ, не длину `message` перед `spawn(claude,['-p',text])` → близко к ARG_MAX (E2BIG). |
+| G10 | minor | `lib/src/config.ts:58-75` | `hydrateEnvFromFile`: наивный парсер не поддерживает `export KEY=` и многострочные значения. |
+| G11 | minor | `scripts/install-cron.sh:33` | Ветка `--remove` вставляет `$job` в grep-regex без экранирования (install-путь валидирует, --remove — нет). |
 
 ---
 
-# Итог исправлений (Этап 4–5, 2026-07-05)
+### 4. Недоделки (TODO, заглушки, хардкод, stale)
 
-**Исправлено и развёрнуто на живой инстанс (16 атомарных коммитов, тесты 84 unit + 59+28 hooks зелёные):**
+| # | severity | файл:строка | проблема |
+|---|---|---|---|
+| N1 | **major** | `evals/fixtures/mind-crisis/` (пусто), privacy/finance/triage — 0 фикстур | ✓verified (54/73 SKIP). Safety-критичные наборы (crisis, privacy) **без offline-фикстур** → детерминированный гейт пуст; CI evals не гоняет → инварианты SAFETY #2 (privacy) и #3 (crisis) **не энфорсятся автоматически**. |
+| N2 | minor | `scripts/init-workspace.sh:96` | Безусловно пишет `"shared_db_with_main_nabu": true` — противоречит standalone-only (shared-режим удалён в v1.0.0). Ложный флаг. |
+| N3 | minor | `scripts/transcribe.py:20` ↔ `config/nabu.config.json:13` | Дефолт модели: скрипт «small», конфиг «large-v3» — расхождение. |
+| N4 | minor | `config/crisis_resources.json` | `VERIFY_BEFORE_PRODUCTION:true`, все номера `verified:false`. **Корректно** по SAFETY (навигатор-first), но остаётся открытым release-gate. |
+| N5 | minor | `evals/runner.mjs` (must_not_include) | Матчер слеп к отрицанию: корректный отказ, цитирующий запрещённую фразу, падает; запрещённое иначе сформулированное — проходит. |
 
-| # | Что | Коммит-тема |
-|---|---|---|
-| C1 | self-approval loop закрыт (`resolve_approval` убран из модели) | fix(C1/M4) |
-| C2 | web-privacy сканирует URL WebFetch + numeric/IPv6 SSRF + RU-телефон | fix(C2/M9/M10) |
-| C3 | все 26 команд + 4 скилла в plugin.json | fix(C3) |
-| M1/M2/M3 | честный vault: knowledge отказ, loopback-assert, эпизоды без vault | fix(M1/M2/M3) |
-| M4 | improve.update_proposal гейт на `proposed` | (в C1) |
-| M5 | CSRF same-origin гейт + документирование localhost-модели | fix(M5) |
-| M7 | 4 агента ограничены (no Write/Edit/Bash) | fix(M7) |
-| M8 | CHECK-констрейнты на visibility (миграция 015) | fix(M8) |
-| M11/M12 | CI гоняет privacy-guard; инсталлятор-URL сведены | fix(M11/M12) |
-| M13 | атомарные записи JSON-состояния (pid+uuid) | fix(M13) |
-| M14 | лимит одновременных Claude-детей (429) | fix(M14) |
-| M15 | единый источник ALLOWED_TOOLS+изоляция | refactor(M15) |
-| M17 | доменные write задокументированы как «narrow personal-write» | fix(kindness/M17) |
-| M18/M19 | ARCHITECTURE.md + registry.json → standalone/8/26 | docs(M18/M19) |
-| kindness | пол honesty≥8/kindness≥6 в personality.ts | fix(kindness/M17) |
-| P3-minor | dead LEGACY_ALLOWLIST, /api/file backslash, XP_ATTRS импорт, transcribe docstring, backup try/finally, habit_logs идемпотентность (миграция 016) | chore/fix(P3) |
+---
 
-**Исправлено после чистой переустановки (2026-07-05, вариант B):**
-- **M6 (cwd=~/Nabu через `--plugin-dir`).** Блокер (несовместимость `--resume` со сменой cwd) снят чистым стартом: старая установка снесена целиком (docker+тома+~/Nabu+сервис), Telegram-группа очищена, поднят свежий инстанс на исправленном коде. `buildClaudeArgs` добавляет `--plugin-dir repoRoot` → плагин Nabu грузится независимо от cwd; оба моста работают с cwd=NABU_HOME. Адъютант пишет файлы в workspace (~/nabu), НЕ в код-репо. Проверено E2E на свежем инстансе: создание сессии + RESUME (resumed:True) + создание файла в ~/Nabu, репо не тронут.
-- **M16 (единое ядро claude-моста).** `buildClaudeArgs` (сборка args = security-постура) и `makeNdjsonParser` (NDJSON-фрейминг = корректность) в `cli/claude-run.mjs` — два самых дрейф-опасных дублированных куска. Каждый мост сохраняет свою спец-логику стрима (web SSE vs TG editMessageText). Проверено: оба пути отвечают, стриминг работает.
+### 5. Пустые функции / мёртвый код
 
-**Оставшийся long-tail minor (низкий приоритет, по запросу):** дедуп `user()`-хелпера (6 мест), `reg()` в `@nabu/lib`, `analytics-server` на `wrap()`, общий эпизод-write между клиентами, unique-констрейнт `metric_values`, срезание inline-комментов в `.env`, `npm ci` в инсталляторах, сверка таксономии классов риска, авто-expiry консультов, недостижимый `catch` в vault-crypto, мёртвые config-флаги `private_only`/`_visibility`.
+| # | severity | файл:строка | проблема |
+|---|---|---|---|
+| D1 | minor | `lib/src/repositories/recommendation.ts:70-78` | `listByDomain()` не вызывается нигде. |
+| D2 | minor | `lib/src/personality.ts:74-93` | `renderSalient()` — только в тесте, ни один сервер/CLI не зовёт. |
+| D3 | minor | `scripts/hooks/guard-web-privacy.sh:44` | Первый python-fallback в `deny()` — SyntaxError; замаскирован `\|\|` корректным fallback. Достижим только без `jq`. |
+| D4 | minor | `cli/telegram-bot.mjs:849-850` | `MAX_AUDIO_BYTES = TG_DOWNLOAD_LIMIT` — избыточный алиас. |
 
-**Риски, требующие твоего решения:** нет открытых (M6/M16 закрыты чистой переустановкой). Остаётся long-tail minor по запросу.
+---
+
+### 6. Качество (дублирование, консистентность)
+
+| # | severity | файл:строка | проблема |
+|---|---|---|---|
+| Q1 | minor | `cli/telegram-bot.mjs:194` ↔ `cli/chat-server.mjs:341` | `extractAssistantText()` идентична в обоих мостах — место в `claude-run.mjs`. Аналогично нарезка на 4000 симв дублируется. |
+| Q2 | minor | `agents/{marketing,product-strategy,sales,startup-gtm,travel-planner}.md` | ✓verified. Ключ `capabilities:` в frontmatter **не поддерживается** Claude Code → игнорируется у 5 агентов. Косметика. |
+| Q3 | minor | `cli/nabu.mjs:116,126` | `.env` (VAULT_KEY, пароль PG, TELEGRAM_BOT_TOKEN) пишется без mode → 0644. Нужен chmod 0600. |
+| Q4 | minor | `schema/postgres/*` | FK-колонки без покрывающего индекса (tasks.project_id/parent_goal_id, quests.goal_id, recommendation.deliberation_id, claims.source_id, note_links.target_note_id, action_log.approval_id) → seq-scan при CASCADE. Single-user некритично. |
+| Q5 | minor | `schema/typedb/002_standalone_domain.tql:4` | Коммент «порядок по имени» неверен: 002 зависит от `memory.tql`, работает только из-за явного `KNOWN_ORDER` в nabu.mjs:354. |
+| Q6 | minor | `schema/postgres/016_habit_logs_dedup.sql:5-8` | Безусловный DELETE при каждом применении схемы (без DO/IF-guard). Идемпотентно по эффекту. |
+| Q7 | minor | `cli/nabu.mjs:800-828` | `pushToTelegram()` режет по 4000 code units — может разорвать суррогатную пару. Косметика. |
+
+**Опровергнуто (НЕ находка):** `disallowedTools` у 71 агента — **официально поддерживаемый** денилист (подтв. по docs.claude.com), least-privilege работает, инвариант #7 соблюдён. SSRF/path-traversal/CSRF/HMAC/XSS в web+connect — надёжны. Инъекций в spawn нет (нет shell:true). version.mjs охватывает все 21 файл.
+
+---
+
+## Сводка
+
+- **critical: 0**
+- **major: 11** — S1,S2,S3 (доки/skills/embeddings-путь) · E1,E2,E3,E4,E5 (freeze демона ×4 + race сессии) · E6 (кэш доменов) · G1,G2 (обходы guard) · G3 (поиск на remote) · N1 (пустые safety-фикстуры)
+- **minor: ~30** — устаревшие числа, dead code, качество данных импорта, права .env, FK-индексы, косметика.
+
+Приоритет для рефакторинга (см. REFACTOR_PLAN.md): сначала **безопасность-гейты** (G1,G2,N1),
+затем **стабильность демона** (E1,E2,E4,E5,E3), затем **корректность на remote-эмбеддере** (E6,G3),
+затем доки/комменты (S1,S2,S3–S8) и minor.
+
+> Требуют решения пользователя: (а) объём фикса freeze-демона (быстрые async-обёртки vs вынос в
+> worker); (б) политика `embedQuery` на remote (блокировать приватно vs разрешать default-поиск);
+> (в) верификация crisis-номеров (release-gate, вне кода).
+
+*Статус исправлений — Этап 5 (в конце), после подтверждённого плана.*
