@@ -51,6 +51,28 @@ async function sync() {
   if (!_syncStore) { try { _syncStore = (await import("./chat-server.mjs"))._sync; } catch { _syncStore = false; } }
   return _syncStore || null;
 }
+
+// OlimpOS P1: резолвер тенанта по Telegram-автору. Активен только при NABU_MULTITENANT=1. Ленивая
+// загрузка lib + один pg-пул (кэш). Возвращает {namespace,userId} или null (→ однопользовательский скоуп).
+let _tenantLibPg = null;
+async function resolveTenantEnv(repoRoot, msg, log) {
+  if (process.env.NABU_MULTITENANT !== "1") return null;
+  const tgId = msg?.from?.id;
+  if (!tgId || msg?.from?.is_bot) return null;
+  try {
+    if (!_tenantLibPg) {
+      const lib = await import(pathToFileURL(join(repoRoot, "lib", "dist", "index.js")).href);
+      lib.hydrateEnv?.();
+      _tenantLibPg = { lib, pg: lib.buildDeps().pg };
+    }
+    const { lib, pg } = _tenantLibPg;
+    const t = await lib.resolveTenantByTelegram(pg, tgId, { displayName: msg.from.first_name || msg.from.username });
+    return t ? { namespace: t.namespace, userId: t.userId } : null;
+  } catch (e) {
+    log?.({ evt: "tenant_resolve_error", error: String(e?.message ?? e).slice(0, 140) });
+    return null; // fail-safe: без тенанта работаем в дефолтном скоупе (не роняем обмен)
+  }
+}
 import { randomUUID } from "node:crypto";
 
 // Живые дочерние процессы (claude/whisper) на уровне модуля: run-хелперы объявлены вне
@@ -619,7 +641,13 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
 
     // Синхронизация web↔TG: adjutant/министры — ОБЩИЙ разговор (общий thread_id + сессия + история).
     const st = await sync();
-    const cid = convId(role); // conv-adjutant / conv-<министр>
+    // OlimpOS P1: при NABU_MULTITENANT=1 резолвим тенанта по автору сообщения. Разговор, сессия и скоуп
+    // MCP-серверов (память/домен/знания) становятся PER-TENANT — иначе разные пользователи делили бы
+    // один conv-<role> (общая сессия/история = утечка). Без флага — прежнее однопользовательское поведение.
+    const tenant = await resolveTenantEnv(repoRoot, msg, log);
+    const extraEnv = tenant ? { NABU_NAMESPACE: tenant.namespace, NABU_USER_ID: tenant.userId } : undefined;
+    const cid = tenant ? `conv-${role}-${tenant.userId}` : convId(role); // conv-adjutant[-<userId>]
+    const skey = tenant ? `${sessionKey}:${tenant.userId}` : sessionKey;   // сессия per-tenant
     // R7-E3: сериализуем обмен по cid (conv-<role>) — общий лок в claude-run.mjs с веб-чатом
     // (тот же процесс демона). Иначе одновременные сообщения web+TG в один разговор спавнили
     // `claude --resume <тот же id>` параллельно → порча файла сессии. result — снаружи (нужен
@@ -634,7 +662,7 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
           await st.persistMessage(repoRoot, cid, "user", opts.originalText || prompt); // история — исходный текст
         } catch { /* стор недоступен — работаем автономно */ }
       }
-      const resumeSessionId = sharedSession || state.sessions[sessionKey];
+      const resumeSessionId = sharedSession || state.sessions[skey];
 
       try {
         result = await runClaude({
@@ -644,12 +672,13 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
           text: prompt,
           resumeSessionId,
           mcpConfigPath,
+          extraEnv, // OlimpOS P1: per-tenant scope для MCP (undefined в однопользовательском режиме)
           onText: (t) => streamer.schedule(t),
         });
       } finally {
         stopTyping();
       }
-      if (result.sessionId) { state.sessions[sessionKey] = result.sessionId; persist(); }
+      if (result.sessionId) { state.sessions[skey] = result.sessionId; persist(); }
       // Записать общую сессию + ответ в общую историю (виден в веб-чате как тот же разговор).
       if (st) {
         try {
@@ -1104,9 +1133,13 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     const isCommand = text.trim().startsWith("/");
     const cmd = isCommand ? text.trim().split(/\s+/)[0].split("@")[0].toLowerCase() : "";
 
-    // Контроль доступа (персональная система, ровно один чат).
+    // Контроль доступа. OlimpOS P1: в много-тенантном режиме личка ЛЮБОГО пользователя допускается —
+    // каждая привязывается к своему тенанту по from.id (без единой boundChatId). Группы (не private) —
+    // P3, пока по прежним правилам. Без флага — прежняя однопользовательская привязка к одному чату.
     let allowed;
-    if (pinned) {
+    if (process.env.NABU_MULTITENANT === "1" && msg.chat.type === "private") {
+      allowed = true;
+    } else if (pinned) {
       allowed = chatId === pinnedChatId;
     } else if (state.boundChatId != null) {
       allowed = chatId === state.boundChatId;
