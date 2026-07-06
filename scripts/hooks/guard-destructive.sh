@@ -6,6 +6,8 @@
 # ГРАНИЦА ПОКРЫТИЯ (важно): этот хук видит только инструмент Bash. Деструктив по БД,
 # идущий через MCP-tools (supabase/typedb `query`, `database_delete`), сюда НЕ попадает —
 # он контролируется approval-механизмом (governance) и правами MCP-серверов. См. SAFETY.md.
+# Это BEST-EFFORT regex-предохранитель: динамические имена команд (X=rm; $X -rf), base64,
+# внешние скрипты его обходят by design — настоящий энфорсер деструктива — approval вне модели.
 set -uo pipefail
 
 stdin=$(cat)
@@ -81,6 +83,11 @@ fi
 if has 'find[[:space:]].*-exec[[:space:]]+rm' && has '(-[a-zA-Z]*[rf]|--force|--recursive)'; then
   deny "Заблокировано: find -exec rm (массовое удаление). Нужен явный approval."
 fi
+# xargs/parallel + rm/shred/unlink: цель приходит из stdin (её нет в строке), rm-ветка выше
+# её не ловит. Пример обхода: `find . | xargs rm -rf`. Матчим «xargs [флаги] rm».
+if has '(xargs|parallel)([[:space:]]+-[^[:space:]]+)*[[:space:]]+(rm|shred|unlink)([[:space:]]|$)'; then
+  deny "Заблокировано: массовое удаление через xargs/parallel + rm/shred/unlink. Нужен approval."
+fi
 # shred (уничтожение файла)
 has "${CMD_B}shred([[:space:]]|$)" && deny "Заблокировано: shred (безвозвратное уничтожение файла). Нужен approval."
 # truncate -s 0 (обнуление файла)
@@ -127,8 +134,17 @@ if hasi "${CMD_B}(psql|mysql|mariadb|sqlite3|mongosh|mongo|cockroach|usql)([[:sp
    || hasi 'supabase[[:space:]]+db'; then
   hasi 'drop[[:space:]]+(table|database|schema)' && deny "Заблокировано: DROP TABLE/DATABASE/SCHEMA через SQL-клиент. Нужен approval."
   hasi 'truncate[[:space:]]+(table[[:space:]]+)?[a-z_]'  && deny "Заблокировано: TRUNCATE через SQL-клиент. Нужен approval."
-  if hasi 'delete[[:space:]]+from' && ! hasi 'where'; then
+  # DELETE/UPDATE без WHERE. Снимаем SQL-комментарии (иначе `-- keep where` маскирует full-table
+  # delete) и требуем WHERE как ОТДЕЛЬНОЕ слово (иначе имя таблицы `audit_where` даёт ложный ALLOW).
+  sql_stripped=$(printf '%s' "$n" | sed -E 's/--[^\n]*//g; s#/\*.*\*/##g')
+  hasi_s() { printf '%s' "$sql_stripped" | grep -qiE -- "$1"; }
+  # WHERE-слово: перед ним не буква/подчёркивание, после — пробел/скобка/конец (не '_where').
+  WHERE_WORD='(^|[^a-z_])where([[:space:](]|$)'
+  if hasi_s 'delete[[:space:]]+from' && ! hasi_s "$WHERE_WORD"; then
     deny "Заблокировано: DELETE FROM без WHERE через SQL-клиент. Нужен approval."
+  fi
+  if hasi_s 'update[[:space:]]+[a-z_][a-z0-9_.\"]*[[:space:]]+set[[:space:]]' && ! hasi_s "$WHERE_WORD"; then
+    deny "Заблокировано: UPDATE … SET без WHERE через SQL-клиент (массовая перезапись). Нужен approval."
   fi
 fi
 
