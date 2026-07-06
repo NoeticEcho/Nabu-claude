@@ -17,7 +17,7 @@
 // Режим один — standalone (локальный docker-стек); shared-режим удалён в v1.0.0.
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, openSync, closeSync, renameSync, unlinkSync, readdirSync, appendFileSync, statSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, openSync, closeSync, renameSync, unlinkSync, readdirSync, appendFileSync, statSync, rmSync, chmodSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -107,6 +107,11 @@ function readEnvFile() {
   }
   return map;
 }
+/** .env содержит секреты (NABU_VAULT_KEY, пароль Postgres, TELEGRAM_BOT_TOKEN) — только владелец
+ *  должен читать (0600), иначе другие локальные пользователи прочтут секреты (шире модели доверия). */
+function chmodEnv() {
+  try { if (existsSync(ENV_PATH)) chmodSync(ENV_PATH, 0o600); } catch { /* best-effort (напр. Windows) */ }
+}
 function appendEnvKeys(pairs) {
   // НИКОГДА не перезаписываем существующие ключи — только дописываем недостающие.
   const existing = readEnvFile();
@@ -114,6 +119,7 @@ function appendEnvKeys(pairs) {
   if (!missing.length) return [];
   const block = missing.map(([k, v]) => `${k}=${v}`).join("\n");
   appendFileSync(ENV_PATH, (existsSync(ENV_PATH) && readFileSync(ENV_PATH, "utf8").length ? "\n" : "") + block + "\n");
+  chmodEnv();
   return missing.map(([k]) => k);
 }
 /** Upsert одного ключа в .env (в отличие от appendEnvKeys — перезаписывает существующий). */
@@ -124,6 +130,7 @@ function setEnvKey(key, value) {
   if (re.test(text)) text = text.replace(re, line);
   else text = text + (text && !text.endsWith("\n") ? "\n" : "") + line + "\n";
   writeFileSync(ENV_PATH, text);
+  chmodEnv();
 }
 function loadEnvIntoProcess() {
   for (const [k, v] of Object.entries(readEnvFile())) if (process.env[k] === undefined) process.env[k] = v;
