@@ -53,6 +53,14 @@ export class DomainRepository {
   }
 
   // ── Проекты ──
+  async createProject(name: string, opts: { goal?: string; domains?: string[] } = {}): Promise<{ id: string }> {
+    const u = await this.user();
+    const r = await this.pg.queryOne<{ id: string }>(
+      "insert into projects(user_id, name, goal, domains) values ($1,$2,$3,$4) returning id",
+      [u, name, opts.goal ?? null, opts.domains ?? []],
+    );
+    return { id: r!.id };
+  }
   async listProjects(status?: string): Promise<unknown[]> {
     const u = await this.user();
     return this.pg.query(

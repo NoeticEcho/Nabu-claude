@@ -134,6 +134,16 @@ function getLibDeps(repoRoot, profile = "") {
   return libDepsCache.get(key);
 }
 
+let _libModule = null; // кэш самого модуля lib (для функций registry: listAgents/shareAgent и т.п.)
+async function getLibModule(repoRoot) {
+  if (!_libModule) {
+    const lib = await import(pathToFileURL(join(repoRoot, "lib", "dist", "index.js")).href);
+    lib.hydrateEnv?.();
+    _libModule = lib;
+  }
+  return _libModule;
+}
+
 const hookIdempotency = new Map(); // hook -> Map<idemKey, ts> (память процесса; ретраи короткоживущие)
 
 const STATS_TTL_MS = 5000;
@@ -975,6 +985,28 @@ function createRequestHandler(opts) {
       if (method === "POST" && path === "/api/chat") {
         await handleChat(req, res, opts);
         return;
+      }
+
+      // ── OlimpOS: управление проектами/доской/агентами/spaces (P7/P4/P6). Scoped по сессии. ──
+      if (path.startsWith("/api/olimpos/")) {
+        // профиль = userId сессии (много-тенант) или "" (дефолт). getLibDeps трактует UUID как тенанта.
+        const prof = opts.webAuth?.enabled ? (opts.webAuth.resolveTenant(req)?.userId || "") : "";
+        const deps = await getLibDeps(opts.repoRoot, prof);
+        const bodyJson = async () => { try { return JSON.parse((await readRequestBody(req)) || "{}"); } catch { return {}; } };
+        const q = url.searchParams;
+        try {
+          if (method === "GET" && path === "/api/olimpos/projects") return sendJson(res, 200, { projects: await deps.domain.listProjects(q.get("status") || undefined) });
+          if (method === "POST" && path === "/api/olimpos/projects") { const b = await bodyJson(); if (!b.name) return sendJson(res, 400, { error: "name" }); return sendJson(res, 200, { project: await deps.domain.createProject(b.name, { goal: b.goal }) }); }
+          if (method === "POST" && path === "/api/olimpos/tasks") { const b = await bodyJson(); if (!b.title) return sendJson(res, 400, { error: "title" }); return sendJson(res, 200, { task: await deps.domain.addTask(b.title, { projectId: b.projectId, priority: b.priority }) }); }
+          if (method === "GET" && path === "/api/olimpos/board") return sendJson(res, 200, { board: await deps.agile.board({ projectId: q.get("projectId") || undefined, sprintId: q.get("sprintId") || undefined }) });
+          if (method === "POST" && path === "/api/olimpos/task-move") { const b = await bodyJson(); await deps.agile.moveTask(b.taskId, b.column); return sendJson(res, 200, { ok: true }); }
+          if (method === "POST" && path === "/api/olimpos/task-estimate") { const b = await bodyJson(); await deps.agile.estimateTask(b.taskId, b.points); return sendJson(res, 200, { ok: true }); }
+          if (method === "POST" && path === "/api/olimpos/epic") { const b = await bodyJson(); return sendJson(res, 200, { epic: await deps.agile.createEpic(b.title, { projectId: b.projectId }) }); }
+          if (method === "POST" && path === "/api/olimpos/sprint") { const b = await bodyJson(); return sendJson(res, 200, { sprint: await deps.agile.createSprint(b.name, { projectId: b.projectId, goal: b.goal }) }); }
+          if (method === "GET" && path === "/api/olimpos/agents") { const lib = await getLibModule(opts.repoRoot); return sendJson(res, 200, { agents: await lib.listAgents(deps.pg, { userId: prof || undefined, onlyShared: q.get("market") === "1" }) }); }
+          if (method === "POST" && path === "/api/olimpos/agent-share") { const b = await bodyJson(); const lib = await getLibModule(opts.repoRoot); const okk = await lib.shareAgent(deps.pg, b.slug, prof || ""); return sendJson(res, okk ? 200 : 400, okk ? { ok: true } : { error: "нельзя опубликовать" }); }
+          return sendJson(res, 404, { error: "unknown_olimpos_route" });
+        } catch (e) { return sendJson(res, 500, { error: String(e?.message ?? e).slice(0, 160) }); }
       }
 
       // GET /api/stats/details?section=… — drill-down карточек дашборда (P1-9).

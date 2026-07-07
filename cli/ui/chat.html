@@ -585,6 +585,7 @@
     <header class="topbar">
       <button class="menu-btn" id="menuBtn" aria-label="Меню">☰</button>
       <div class="title">Nabu — <span class="accent">Совет</span></div>
+      <button class="lang-toggle" id="olimpBtn" title="OlimpOS — проекты, доска, агенты" style="margin-right:6px">🛠</button>
       <button class="lang-toggle" id="langToggle" title="Сменить язык">EN</button>
       <span class="status-dot" id="statusDot" title="Статус"></span>
     </header>
@@ -2134,6 +2135,147 @@
   loadThreads();
   autoGrow();
   el.input.focus();
+})();
+</script>
+
+<!-- ─────────────── OlimpOS: панель управления (проекты/доска/агенты) ─────────────── -->
+<div id="olimpPanel" style="display:none;position:fixed;inset:0;z-index:9500;background:rgba(6,8,12,.72);backdrop-filter:blur(3px);font-family:system-ui,-apple-system,sans-serif">
+  <div style="max-width:960px;margin:24px auto;background:#12151c;color:#e6e8ee;border:1px solid #262b36;border-radius:14px;max-height:calc(100vh - 48px);display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid #262b36">
+      <b style="font-size:16px">🛠 OlimpOS</b>
+      <div id="olimpTabs" style="display:flex;gap:6px;flex:1">
+        <button data-tab="projects" class="olimp-tab">Проекты</button>
+        <button data-tab="board" class="olimp-tab">Доска</button>
+        <button data-tab="agents" class="olimp-tab">Агенты</button>
+      </div>
+      <button id="olimpClose" style="background:#1c2029;color:#e6e8ee;border:1px solid #333a47;border-radius:8px;padding:6px 12px;cursor:pointer">✕</button>
+    </div>
+    <div id="olimpErr" style="display:none;margin:10px 18px 0;padding:8px 12px;background:#3a1d22;border:1px solid #6b2b33;border-radius:8px;color:#ffd7dc;font-size:13px"></div>
+    <div id="olimpBody" style="padding:16px 18px;overflow:auto"></div>
+  </div>
+</div>
+<style>
+  .olimp-tab{background:#1c2029;color:#aeb4c2;border:1px solid #2b3140;border-radius:8px;padding:6px 14px;cursor:pointer;font-size:13px}
+  .olimp-tab.active{background:#2a4d8f;color:#fff;border-color:#3a63b0}
+  #olimpBody input,#olimpBody select,#olimpBody textarea{background:#0e1116;color:#e6e8ee;border:1px solid #2b3140;border-radius:8px;padding:8px 10px;font:inherit;font-size:13px}
+  #olimpBody button.act{background:#2a4d8f;color:#fff;border:1px solid #3a63b0;border-radius:8px;padding:7px 14px;cursor:pointer;font-size:13px}
+  #olimpBody button.mini{background:#1c2029;color:#cfd4e0;border:1px solid #2b3140;border-radius:6px;padding:3px 9px;cursor:pointer;font-size:12px;margin-right:4px}
+  .olimp-card{background:#0e1116;border:1px solid #232833;border-radius:9px;padding:10px 12px;margin-bottom:8px}
+  .olimp-col{background:#0d1015;border:1px solid #1e232d;border-radius:10px;padding:10px;min-width:0}
+  .olimp-cols{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  @media(max-width:760px){.olimp-cols{grid-template-columns:1fr 1fr}}
+</style>
+<script>
+"use strict";
+(function olimpOS(){
+  const panel=document.getElementById("olimpPanel"), body=document.getElementById("olimpBody"), errBox=document.getElementById("olimpErr");
+  const openBtn=document.getElementById("olimpBtn"), closeBtn=document.getElementById("olimpClose"), tabsWrap=document.getElementById("olimpTabs");
+  let curTab="projects", curProject=null, projectsCache=[];
+  const esc=(s)=>String(s??"").replace(/[&<>"]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const showErr=(m)=>{errBox.textContent=m;errBox.style.display=m?"block":"none";};
+  async function api(method,path,bodyObj){
+    const r=await fetch("/api/olimpos/"+path,{method,headers:bodyObj?{"content-type":"application/json"}:undefined,body:bodyObj?JSON.stringify(bodyObj):undefined});
+    const j=await r.json().catch(()=>null);
+    if(!r.ok){throw new Error(j&&j.error?j.error:("HTTP "+r.status));}
+    return j;
+  }
+  function setTab(t){curTab=t;[...tabsWrap.children].forEach(b=>b.classList.toggle("active",b.dataset.tab===t));render();}
+  async function render(){
+    showErr(""); body.innerHTML="<div style='color:#7b8394;padding:20px'>Загрузка…</div>";
+    try{
+      if(curTab==="projects") await renderProjects();
+      else if(curTab==="board") await renderBoard();
+      else if(curTab==="agents") await renderAgents();
+    }catch(e){ body.innerHTML=""; showErr(String(e.message||e)); }
+  }
+  // ── Проекты ──
+  async function renderProjects(){
+    const {projects}=await api("GET","projects");
+    projectsCache=projects||[];
+    let h=`<div style="display:flex;gap:8px;margin-bottom:14px">
+      <input id="npName" placeholder="Название проекта" style="flex:1">
+      <input id="npGoal" placeholder="Цель (необязательно)" style="flex:1">
+      <button class="act" id="npAdd">Создать</button></div>`;
+    if(!projectsCache.length) h+=`<div style="color:#7b8394">Пока нет проектов. Создайте первый.</div>`;
+    for(const p of projectsCache){
+      h+=`<div class="olimp-card" style="display:flex;align-items:center;gap:10px">
+        <div style="flex:1"><b>${esc(p.name)}</b> <span style="color:#6b7280;font-size:12px">· ${esc(p.status||"active")}</span>
+        ${p.goal?`<div style="color:#8a92a3;font-size:12px;margin-top:2px">${esc(p.goal)}</div>`:""}</div>
+        <button class="mini" data-open="${esc(p.id)}">Доска →</button></div>`;
+    }
+    body.innerHTML=h;
+    document.getElementById("npAdd").onclick=async()=>{
+      const name=document.getElementById("npName").value.trim(); if(!name)return;
+      try{ await api("POST","projects",{name,goal:document.getElementById("npGoal").value.trim()||undefined}); render(); }
+      catch(e){ showErr(String(e.message||e)); }
+    };
+    body.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{curProject=b.dataset.open;setTab("board");});
+  }
+  // ── Доска (kanban) ──
+  const COLS=[["todo","К выполнению"],["doing","В работе"],["review","Ревью"],["done","Готово"]];
+  async function renderBoard(){
+    if(!projectsCache.length){ try{const {projects}=await api("GET","projects");projectsCache=projects||[];}catch{} }
+    if(!curProject && projectsCache.length) curProject=projectsCache[0].id;
+    const opts=projectsCache.map(p=>`<option value="${esc(p.id)}"${p.id===curProject?" selected":""}>${esc(p.name)}</option>`).join("");
+    let head=`<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <select id="bdProj">${opts||"<option>— нет проектов —</option>"}</select>
+      <input id="bdTask" placeholder="Новая задача → в «К выполнению»" style="flex:1;min-width:180px">
+      <button class="act" id="bdAdd">Добавить</button>
+      <button class="mini" id="bdEpic">+ Эпик</button><button class="mini" id="bdSprint">+ Спринт</button></div>`;
+    if(!curProject){ body.innerHTML=head+`<div style="color:#7b8394">Создайте проект во вкладке «Проекты».</div>`; wireBoardHead(); return; }
+    const {board}=await api("GET","board?projectId="+encodeURIComponent(curProject));
+    let cols=`<div class="olimp-cols">`;
+    for(const [key,label] of COLS){
+      const items=board[key]||[];
+      cols+=`<div class="olimp-col"><div style="font-size:12px;color:#8a92a3;margin-bottom:8px">${label} · ${items.length}</div>`;
+      for(const t of items){
+        cols+=`<div class="olimp-card"><div style="font-size:13px">${esc(t.title)}</div>
+          ${t.estimate?`<span style="color:#6b7280;font-size:11px">${t.estimate} SP</span>`:""}
+          <div style="margin-top:6px">${COLS.filter(c=>c[0]!==key).map(c=>`<button class="mini" data-mv="${esc(t.id)}" data-col="${c[0]}">${c[1]}</button>`).join("")}</div></div>`;
+      }
+      cols+=`</div>`;
+    }
+    cols+=`</div>`;
+    body.innerHTML=head+cols; wireBoardHead();
+    body.querySelectorAll("[data-mv]").forEach(b=>b.onclick=async()=>{
+      try{ await api("POST","task-move",{taskId:b.dataset.mv,column:b.dataset.col}); renderBoard(); }catch(e){ showErr(String(e.message||e)); }
+    });
+  }
+  function wireBoardHead(){
+    const sel=document.getElementById("bdProj"); if(sel) sel.onchange=()=>{curProject=sel.value;renderBoard();};
+    const add=document.getElementById("bdAdd"); if(add) add.onclick=async()=>{
+      const t=document.getElementById("bdTask").value.trim(); if(!t||!curProject)return;
+      try{ await api("POST","tasks",{title:t,projectId:curProject,priority:"normal"}); renderBoard(); }catch(e){ showErr(String(e.message||e)); }
+    };
+    const ep=document.getElementById("bdEpic"); if(ep) ep.onclick=async()=>{
+      const t=prompt("Название эпика:"); if(!t)return;
+      try{ await api("POST","epic",{title:t,projectId:curProject}); showErr("Эпик создан ✓"); }catch(e){ showErr(String(e.message||e)); }
+    };
+    const sp=document.getElementById("bdSprint"); if(sp) sp.onclick=async()=>{
+      const n=prompt("Название спринта:"); if(!n)return;
+      try{ await api("POST","sprint",{name:n,projectId:curProject,goal:""}); showErr("Спринт создан ✓"); }catch(e){ showErr(String(e.message||e)); }
+    };
+  }
+  // ── Агенты (маркетплейс) ──
+  async function renderAgents(){
+    const {agents}=await api("GET","agents?market=1");
+    let h=`<div style="color:#8a92a3;font-size:13px;margin-bottom:12px">Общие агенты (маркетплейс). Опубликуйте своего агента, чтобы им пользовалось сообщество.</div>
+      <div style="display:flex;gap:8px;margin-bottom:14px"><input id="agSlug" placeholder="slug вашего агента для публикации" style="flex:1"><button class="act" id="agShare">Опубликовать</button></div>`;
+    if(!agents||!agents.length) h+=`<div style="color:#7b8394">Пока нет общих агентов.</div>`;
+    for(const a of (agents||[])){
+      h+=`<div class="olimp-card"><b>${esc(a.slug||a.name)}</b> <span style="color:#6b7280;font-size:12px">· ${esc(a.visibility||"shared")}${a.usage_count!=null?" · использован "+a.usage_count+"×":""}</span>
+        ${a.description?`<div style="color:#8a92a3;font-size:12px;margin-top:3px">${esc(a.description)}</div>`:""}</div>`;
+    }
+    body.innerHTML=h;
+    document.getElementById("agShare").onclick=async()=>{
+      const slug=document.getElementById("agSlug").value.trim(); if(!slug)return;
+      try{ await api("POST","agent-share",{slug}); showErr("Опубликовано ✓"); renderAgents(); }catch(e){ showErr(String(e.message||e)); }
+    };
+  }
+  openBtn&&(openBtn.onclick=()=>{panel.style.display="block";setTab(curTab);});
+  closeBtn.onclick=()=>{panel.style.display="none";};
+  panel.addEventListener("click",(e)=>{if(e.target===panel)panel.style.display="none";});
+  tabsWrap.querySelectorAll(".olimp-tab").forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
 })();
 </script>
 </body>
