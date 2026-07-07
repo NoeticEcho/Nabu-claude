@@ -6,6 +6,7 @@ export * from "./tenancy.js";
 export * from "./registry.js";
 export * from "./sandbox.js";
 export * from "./sitegen.js";
+export * from "./agile.js";
 export * from "./config.js";
 export * from "./types.js";
 export * from "./ports.js";
@@ -105,6 +106,7 @@ import { ConsultRepository } from "./repositories/consult.js";
 import { DashboardRepository } from "./repositories/dashboard.js";
 import { HealthImportRepository } from "./health-import.js";
 import { FinanceImportRepository } from "./finance-import.js";
+import { AgileRepository } from "./agile.js";
 
 /** Собранный набор зависимостей для серверов (композиционный корень). */
 export interface NabuDeps {
@@ -127,6 +129,7 @@ export interface NabuDeps {
   dashboard: DashboardRepository;
   healthImport: HealthImportRepository;
   financeImport: FinanceImportRepository;
+  agile: AgileRepository;
   namespace: string;
 }
 
@@ -167,7 +170,8 @@ export function buildDeps(overrides: { namespace?: string; userId?: string } = {
   const dashboard = new DashboardRepository(pg, graphClient, env.namespace, env.userId);
   const healthImport = new HealthImportRepository(pg, env.userId);
   const financeImport = new FinanceImportRepository(pg, env.userId);
-  return { pg, embedder, graph, graphClient, memory, knowledge, deliberation, governance, analytics, personality, domain, notes, systemTask, improvement, recommendation, consult, dashboard, healthImport, financeImport, namespace: env.namespace };
+  const agile = new AgileRepository(pg, env.userId);
+  return { pg, embedder, graph, graphClient, memory, knowledge, deliberation, governance, analytics, personality, domain, notes, systemTask, improvement, recommendation, consult, dashboard, healthImport, financeImport, agile, namespace: env.namespace };
 }
 
 /**
