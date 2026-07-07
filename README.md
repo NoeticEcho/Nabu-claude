@@ -139,6 +139,14 @@ to a common **marketplace** — personal data stays personal. Off by default (`N
 enables it on a VPS). User guide: [docs/OLIMPOS_GUIDE.md](docs/OLIMPOS_GUIDE.md) · deployment:
 [docs/DEPLOY_HTTPS.md](docs/DEPLOY_HTTPS.md) · design: [docs/OLIMPOS_ROADMAP.md](docs/OLIMPOS_ROADMAP.md).
 
+## 🔌 Public API (v1)
+
+A token-authenticated REST API (`/api/v1`) for external clients — a mobile app, scripts, integrations.
+Bearer **personal access tokens** (hashed at rest, revocable), strict per-user scoping, works on a
+multi-tenant instance or locally via `NABU_API_TOKEN`. Endpoints for chat (sync + SSE), memory recall
+(vault excluded), tasks/projects, OlimpOS board/agents, and conversations. Manage tokens from the web
+UI (🛠 → API) or `POST /api/v1/auth/token`. Reference: [docs/API.md](docs/API.md).
+
 ## 🌱 Nabu Commons
 
 Instances of Nabu improve the project together. With the user's opt-in, an instance

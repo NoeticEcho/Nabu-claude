@@ -2147,6 +2147,7 @@
         <button data-tab="projects" class="olimp-tab">Проекты</button>
         <button data-tab="board" class="olimp-tab">Доска</button>
         <button data-tab="agents" class="olimp-tab">Агенты</button>
+        <button data-tab="api" class="olimp-tab">API</button>
       </div>
       <button id="olimpClose" style="background:#1c2029;color:#e6e8ee;border:1px solid #333a47;border-radius:8px;padding:6px 12px;cursor:pointer">✕</button>
     </div>
@@ -2186,6 +2187,7 @@
       if(curTab==="projects") await renderProjects();
       else if(curTab==="board") await renderBoard();
       else if(curTab==="agents") await renderAgents();
+      else if(curTab==="api") await renderApi();
     }catch(e){ body.innerHTML=""; showErr(String(e.message||e)); }
   }
   // ── Проекты ──
@@ -2271,6 +2273,36 @@
       const slug=document.getElementById("agSlug").value.trim(); if(!slug)return;
       try{ await api("POST","agent-share",{slug}); showErr("Опубликовано ✓"); renderAgents(); }catch(e){ showErr(String(e.message||e)); }
     };
+  }
+  // ── API-токены (для мобильного/внешних клиентов) ──
+  async function tokApi(method,path,bodyObj){
+    const r=await fetch("/api/tokens"+path,{method,headers:bodyObj?{"content-type":"application/json"}:undefined,body:bodyObj?JSON.stringify(bodyObj):undefined});
+    const j=await r.json().catch(()=>null); if(!r.ok) throw new Error(j&&j.error?(j.error.message||j.error):("HTTP "+r.status)); return j;
+  }
+  async function renderApi(){
+    const {tokens}=await tokApi("GET","");
+    let h=`<div style="color:#8a92a3;font-size:13px;margin-bottom:12px">Личные bearer-токены для внешних клиентов (мобильное приложение, скрипты). Токен показывается один раз. Документация: <code>docs/API.md</code>.</div>
+      <div style="display:flex;gap:8px;margin-bottom:14px"><input id="tkName" placeholder="Метка (напр. iPhone)" style="flex:1"><button class="act" id="tkNew">Создать токен</button></div>
+      <div id="tkNew1" style="display:none;margin-bottom:14px;padding:10px 12px;background:#12351f;border:1px solid #2b6b3a;border-radius:8px;color:#c8f7d4;font-size:12px;word-break:break-all"></div>`;
+    if(!tokens||!tokens.length) h+=`<div style="color:#7b8394">Токенов пока нет.</div>`;
+    for(const t of (tokens||[])){
+      const revoked=t.revoked_at;
+      h+=`<div class="olimp-card" style="display:flex;align-items:center;gap:10px;${revoked?'opacity:.5':''}">
+        <div style="flex:1"><b>${esc(t.name||"—")}</b> <span style="color:#6b7280;font-size:12px">· создан ${esc(String(t.created_at||"").slice(0,10))}${t.last_used_at?" · исп. "+esc(String(t.last_used_at).slice(0,10)):""}${revoked?" · отозван":""}</span></div>
+        ${revoked?"":`<button class="mini" data-revoke="${esc(t.id)}">Отозвать</button>`}</div>`;
+    }
+    body.innerHTML=h;
+    document.getElementById("tkNew").onclick=async()=>{
+      try{ const r=await tokApi("POST","",{name:document.getElementById("tkName").value.trim()||"web"});
+        const box=document.getElementById("tkNew1"); box.style.display="block";
+        box.textContent="Ваш токен (сохраните — больше не покажем): "+r.token;
+        // не перерисовываем список, чтобы токен остался на экране; обновится при след. открытии вкладки
+      }catch(e){ showErr(String(e.message||e)); }
+    };
+    body.querySelectorAll("[data-revoke]").forEach(b=>b.onclick=async()=>{
+      if(!confirm("Отозвать токен? Клиенты с ним потеряют доступ.")) return;
+      try{ await tokApi("DELETE","/"+b.dataset.revoke); renderApi(); }catch(e){ showErr(String(e.message||e)); }
+    });
   }
   openBtn&&(openBtn.onclick=()=>{panel.style.display="block";setTab(curTab);});
   closeBtn.onclick=()=>{panel.style.display="none";};

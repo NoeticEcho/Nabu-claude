@@ -1026,6 +1026,21 @@ function createRequestHandler(opts) {
         }
       }
 
+      // Управление личными API-токенами из веб-сессии (cookie-authed; под auth-гейтом выше).
+      // Пользователь веба выпускает/смотрит/отзывает bearer-токены для мобильного/внешних клиентов.
+      if (path === "/api/tokens" || path.startsWith("/api/tokens/")) {
+        const userId = opts.webAuth?.enabled ? (opts.webAuth.resolveTenant(req)?.userId || "") : (process.env.NABU_USER_ID || "");
+        if (!userId) { sendJson(res, 401, { error: "auth_required" }); return; }
+        const libm = await getLibModule(opts.repoRoot);
+        const tdeps = await getLibDeps(opts.repoRoot, userId);
+        try {
+          if (method === "GET" && path === "/api/tokens") { sendJson(res, 200, { tokens: await libm.listTokens(tdeps.pg, userId) }); return; }
+          if (method === "POST" && path === "/api/tokens") { const b = JSON.parse((await readRequestBody(req)) || "{}"); const tk = await libm.issueToken(tdeps.pg, userId, (b.name || "web").slice(0, 60)); sendJson(res, 200, { token: tk.token, id: tk.id }); return; }
+          if (method === "DELETE" && path.startsWith("/api/tokens/")) { const id = path.slice("/api/tokens/".length); const okk = await libm.revokeToken(tdeps.pg, userId, id); sendJson(res, okk ? 200 : 404, okk ? { ok: true } : { error: "not_found" }); return; }
+          sendJson(res, 404, { error: "unknown" }); return;
+        } catch (e) { log?.({ evt: "tokens_error", error: String(e?.message ?? e).slice(0, 200) }); sendJson(res, 500, { error: "внутренняя ошибка" }); return; }
+      }
+
       // GET /api/stats/details?section=… — drill-down карточек дашборда (P1-9).
       // Оркестрирует существующие lib-методы + узкие read-only pg/graph запросы.
       // ИНВАРИАНТ приватности #2: vault НИКОГДА не попадает в выдачу (visibility <> 'vault').
