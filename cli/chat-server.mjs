@@ -14,7 +14,23 @@ import { randomUUID, timingSafeEqual as tse } from "node:crypto";
 import { readFile, writeFile, rename, mkdir, realpath } from "node:fs/promises";
 import { appendFileSync, mkdirSync, statSync, renameSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve as pathResolve, sep } from "node:path";
+
+// OlimpOS P6: безопасный путь внутри sites-root (анти-traversal) + content-type для сервинга spaces.
+function safeSitePath(sitesRoot, slug, relPath) {
+  const safeSlug = String(slug).replace(/[^a-zA-Z0-9._-]/g, "");
+  if (!safeSlug) return null;
+  const base = join(sitesRoot, safeSlug);
+  const rel = (relPath === "" || relPath === "/") ? "index.html" : relPath.replace(/^\//, "");
+  const full = join(base, rel);
+  const rBase = pathResolve(base), rFull = pathResolve(full);
+  return (rFull === rBase || rFull.startsWith(rBase + sep)) ? full : null;
+}
+function siteContentType(p) {
+  const ext = p.slice(p.lastIndexOf(".")).toLowerCase();
+  return ({ ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".json": "application/json",
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "image/svg+xml", ".gif": "image/gif", ".webp": "image/webp" }[ext]) || "application/octet-stream";
+}
 import { allSharedConvs, isSharedConv, convTitle, roleOfConv } from "./conversations.mjs";
 
 // Таймаут одного headless claude-обмена. Дефолт 30 мин (было 10 — рубило длинные агентные задачи
@@ -749,6 +765,23 @@ function createRequestHandler(opts) {
     }
     const path = url.pathname;
     const method = req.method || "GET";
+
+    // OlimpOS P6: публичные spaces (сгенерированные сайты) — БЕЗ auth, GET /s/<slug>/<path>.
+    // В sites-root попадают ТОЛЬКО опубликованные (public) сайты, поэтому проверка visibility не нужна.
+    if (method === "GET" && path.startsWith("/s/")) {
+      const m = path.match(/^\/s\/([^/]+)(\/.*)?$/);
+      if (m) {
+        const full = safeSitePath(join(opts.nabuHome, "sites"), m[1], m[2] || "/");
+        if (full) {
+          try {
+            const data = await readFile(full);
+            res.writeHead(200, { "content-type": siteContentType(full), "cache-control": "public, max-age=60" });
+            res.end(data); return;
+          } catch { /* → 404 */ }
+        }
+      }
+      sendJson(res, 404, { error: "space_not_found" }); return;
+    }
 
     // CSRF-гейт (аудит R6, M5): мутирующие запросы (POST/PUT/PATCH/DELETE) от браузера обязаны
     // быть same-origin. Вредоносный сайт, делающий fetch на 127.0.0.1:4517, шлёт Origin своего

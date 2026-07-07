@@ -16,3 +16,4 @@ create table if not exists space (
 );
 create index if not exists ix_space_owner on space(owner_user);
 create index if not exists ix_space_tgchat on space(tg_chat_id);
+alter table space add column if not exists updated_at timestamptz not null default now();

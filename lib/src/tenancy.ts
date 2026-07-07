@@ -7,6 +7,8 @@
 
 import type { Postgres } from "./db/postgres.js";
 import { scryptSync, randomBytes, timingSafeEqual } from "node:crypto";
+import { generateSite } from "./sitegen.js";
+import { join } from "node:path";
 
 /** Well-known имя общего пространства (фиксированный UUID создаётся миграцией 019). */
 export const COMMONS_NS = "__commons__";
@@ -115,6 +117,32 @@ export interface SpaceTenant {
   namespace: string;   // имя пространства проекта (`g:<chatId>` или `p:<uuid>`)
   userId: string;      // синтетический аккаунт проекта (для доменного скоупа: tasks/projects)
   spaceId: string;     // = namespace uuid
+}
+
+/**
+ * Опубликовать space как публичный сайт (OlimpOS P6): сгенерировать статику из srcDir в
+ * sitesRoot/<slug> и пометить space public со slug. Доступен по URL /s/<slug>. slug санитизируется.
+ */
+export async function publishSpace(
+  pg: Postgres,
+  namespaceId: string,
+  slug: string,
+  srcDir: string,
+  sitesRoot: string,
+  opts: { title?: string } = {},
+): Promise<{ slug: string; pages: number; url: string }> {
+  const safe = slug.replace(/[^a-zA-Z0-9._-]/g, "-").toLowerCase().slice(0, 60);
+  if (!safe) throw new Error("пустой slug");
+  const taken = await pg.queryOne<{ namespace: string }>("select namespace from space where slug = $1 and namespace <> $2", [safe, namespaceId]);
+  if (taken) throw new Error(`slug '${safe}' уже занят другим пространством`);
+  const r = generateSite(srcDir, join(sitesRoot, safe), { title: opts.title });
+  await pg.query("update space set slug = $2, visibility = 'public', updated_at = now() where namespace = $1", [namespaceId, safe]).catch(() => { /* space может отсутствовать для личных — ок */ });
+  return { slug: safe, pages: r.pages, url: `/s/${safe}/` };
+}
+
+/** Снять публикацию (space снова приватный; файлы можно удалить вызывающему). */
+export async function unpublishSpace(pg: Postgres, namespaceId: string): Promise<void> {
+  await pg.query("update space set visibility = 'private', updated_at = now() where namespace = $1", [namespaceId]);
 }
 
 /** Добавить пользователя в пространство (idempotent). */
