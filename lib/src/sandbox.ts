@@ -8,7 +8,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { join, resolve, sep, dirname } from "node:path";
 
 export interface SandboxRunResult { code: number; stdout: string; stderr: string; timedOut: boolean; }
 
@@ -26,11 +26,23 @@ export function projectDir(spaceSlug: string): string {
   return dir;
 }
 
-/** Проверка, что путь внутри рабочей папки (анти-traversal при записи файлов). */
+/**
+ * Проверка, что путь внутри рабочей папки — SYMLINK-SAFE (AUDIT R8 M4).
+ * Раньше сверялся лишь лексический `resolve()`, не разворачивающий symlink-компоненты: код в
+ * контейнере (sandbox_run, где /work↔workdir) мог создать `ln -s /etc evil`, после чего
+ * read/writeSandboxFile("evil/…") следовали по symlink на ХОСТ. Теперь берём realpath самого
+ * глубокого СУЩЕСТВУЮЩЕГО предка цели (цель при записи может ещё не существовать) и сверяем
+ * реальный путь с realpath(workdir) — любой symlink-предок, уводящий наружу, отвергается.
+ */
 function withinWorkdir(workdir: string, target: string): boolean {
-  const w = realpathSync(resolve(workdir));
-  const t = resolve(workdir, target);
-  return t === w || t.startsWith(w + sep);
+  const root = realpathSync(resolve(workdir));
+  const abs = resolve(workdir, target);
+  let probe = abs;
+  while (!existsSync(probe) && probe !== dirname(probe)) probe = dirname(probe);
+  let realProbe: string;
+  try { realProbe = realpathSync(probe); } catch { return false; }
+  const resolved = realProbe + abs.slice(probe.length); // realpath предка + лексический хвост
+  return resolved === root || resolved.startsWith(root + sep);
 }
 
 /** Записать файл внутри песочницы (относительный путь; traversal запрещён). */
