@@ -1003,14 +1003,19 @@ function createRequestHandler(opts) {
           if (method === "POST" && path === "/api/olimpos/projects") { const b = await bodyJson(); if (!b.name) return sendJson(res, 400, { error: "name" }); return sendJson(res, 200, { project: await deps.domain.createProject(b.name, { goal: b.goal }) }); }
           if (method === "POST" && path === "/api/olimpos/tasks") { const b = await bodyJson(); if (!b.title) return sendJson(res, 400, { error: "title" }); return sendJson(res, 200, { task: await deps.domain.addTask(b.title, { projectId: b.projectId, priority: b.priority }) }); }
           if (method === "GET" && path === "/api/olimpos/board") return sendJson(res, 200, { board: await deps.agile.board({ projectId: q.get("projectId") || undefined, sprintId: q.get("sprintId") || undefined }) });
-          if (method === "POST" && path === "/api/olimpos/task-move") { const b = await bodyJson(); await deps.agile.moveTask(b.taskId, b.column); return sendJson(res, 200, { ok: true }); }
-          if (method === "POST" && path === "/api/olimpos/task-estimate") { const b = await bodyJson(); await deps.agile.estimateTask(b.taskId, b.points); return sendJson(res, 200, { ok: true }); }
+          if (method === "POST" && path === "/api/olimpos/task-move") { const b = await bodyJson(); if (!b.taskId || !["todo", "doing", "review", "done"].includes(b.column)) return sendJson(res, 400, { error: "нужны taskId и column ∈ {todo,doing,review,done}" }); await deps.agile.moveTask(b.taskId, b.column); return sendJson(res, 200, { ok: true }); }
+          if (method === "POST" && path === "/api/olimpos/task-estimate") { const b = await bodyJson(); if (!b.taskId || !Number.isFinite(Number(b.points))) return sendJson(res, 400, { error: "нужны taskId и числовой points" }); await deps.agile.estimateTask(b.taskId, Number(b.points)); return sendJson(res, 200, { ok: true }); }
           if (method === "POST" && path === "/api/olimpos/epic") { const b = await bodyJson(); return sendJson(res, 200, { epic: await deps.agile.createEpic(b.title, { projectId: b.projectId }) }); }
           if (method === "POST" && path === "/api/olimpos/sprint") { const b = await bodyJson(); return sendJson(res, 200, { sprint: await deps.agile.createSprint(b.name, { projectId: b.projectId, goal: b.goal }) }); }
           if (method === "GET" && path === "/api/olimpos/agents") { const lib = await getLibModule(opts.repoRoot); return sendJson(res, 200, { agents: await lib.listAgents(deps.pg, { userId: prof || undefined, onlyShared: q.get("market") === "1" }) }); }
           if (method === "POST" && path === "/api/olimpos/agent-share") { const b = await bodyJson(); const lib = await getLibModule(opts.repoRoot); const okk = await lib.shareAgent(deps.pg, b.slug, prof || ""); return sendJson(res, okk ? 200 : 400, okk ? { ok: true } : { error: "нельзя опубликовать" }); }
           return sendJson(res, 404, { error: "unknown_olimpos_route" });
-        } catch (e) { return sendJson(res, 500, { error: String(e?.message ?? e).slice(0, 160) }); }
+        } catch (e) {
+          // AUDIT R8: не отдаём сырой текст внутренней ошибки клиенту (утечка строк Postgres/схемы) —
+          // детали в серверный лог, наружу обобщённое сообщение.
+          log?.({ evt: "olimpos_error", path, error: String(e?.message ?? e).slice(0, 300) });
+          return sendJson(res, 500, { error: "внутренняя ошибка" });
+        }
       }
 
       // GET /api/stats/details?section=… — drill-down карточек дашборда (P1-9).

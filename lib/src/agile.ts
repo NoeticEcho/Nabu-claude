@@ -100,8 +100,10 @@ export class AgileRepository {
     for (const r of rows) {
       const pts = r.estimate ?? 0;
       total += pts;
-      byColumn[r.board_column] = (byColumn[r.board_column] ?? 0) + 1;
-      if (r.board_column === "done") { done += pts; doneCount++; }
+      // AUDIT R8: клампим неизвестную колонку к 'todo' (как в board()), чтобы не плодить чужие ключи.
+      const col = (["todo", "doing", "review", "done"].includes(r.board_column) ? r.board_column : "todo");
+      byColumn[col] = (byColumn[col] ?? 0) + 1;
+      if (col === "done") { done += pts; doneCount++; }
     }
     return { totalPoints: total, donePoints: done, remainingPoints: total - done, byColumn, taskCount: rows.length, doneCount };
   }

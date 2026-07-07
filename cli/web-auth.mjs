@@ -111,7 +111,12 @@ export function createWebAuth({ repoRoot, secret }) {
         const t = await lib.registerWebUser(pg, email, password, displayName);
         const token = issue(t.userId);
         return sendJson(res, 200, { ok: true, userId: t.userId }, { "set-cookie": makeCookie(token, SESSION_TTL_MS) }), true;
-      } catch (e) { return sendJson(res, 409, { error: String(e?.message ?? e).slice(0, 120) }), true; }
+      } catch (e) {
+        // AUDIT R8: наружу — только известное сообщение о дубликате email; прочие ошибки БД не светим.
+        const msg = String(e?.message ?? e);
+        const dup = /email/i.test(msg) && /зарегистр|exist|dupl|unique/i.test(msg);
+        return sendJson(res, dup ? 409 : 500, { error: dup ? "email уже зарегистрирован" : "внутренняя ошибка" }), true;
+      }
     }
 
     if (method === "POST" && path === "/api/auth/login") {
