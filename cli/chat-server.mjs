@@ -42,6 +42,7 @@ import { allSharedConvs, isSharedConv, convTitle, roleOfConv } from "./conversat
 const CHILD_TIMEOUT_MS = Number(process.env.NABU_CLAUDE_TIMEOUT_MS) || 30 * 60 * 1000;
 import { buildClaudeArgs, makeNdjsonParser, withConversationLock, extractAssistantText } from "./claude-run.mjs";
 import { createWebAuth } from "./web-auth.mjs";
+import { createApiV1 } from "./api-v1.mjs";
 
 // ---------------------------------------------------------------------------
 // Структурированный JSONL-лог (${nabuHome}/.nabu/logs/chat.jsonl, ротация 5МБ).
@@ -797,6 +798,13 @@ function createRequestHandler(opts) {
       sendJson(res, 404, { error: "space_not_found" }); return;
     }
 
+    // Public API v1 — ДО CSRF и куки-гейта: аутентификация bearer-токеном (не куки), поэтому same-origin
+    // CSRF неприменим (как /api/hooks), а доступ проверяет собственный bearer-гейт внутри apiV1.handle.
+    if (opts.apiV1 && (path === "/api/v1" || path.startsWith("/api/v1/"))) {
+      try { if (await opts.apiV1.handle(req, res, path, method, () => readRequestBody(req))) return; }
+      catch { if (!res.writableEnded) sendJson(res, 500, { error: { code: "internal", message: "api error" } }); return; }
+    }
+
     // CSRF-гейт (аудит R6, M5): мутирующие запросы (POST/PUT/PATCH/DELETE) от браузера обязаны
     // быть same-origin. Вредоносный сайт, делающий fetch на 127.0.0.1:4517, шлёт Origin своего
     // домена / Sec-Fetch-Site: cross-site → отклоняем (иначе любая открытая вкладка могла бы
@@ -1306,7 +1314,13 @@ export function startChatServer({
     console.warn("⚠️  [nabu] NABU_MULTITENANT=1, а NABU_SESSION_SECRET/NABU_VAULT_KEY не заданы — сессии подписаны дефолтным секретом. Задайте NABU_SESSION_SECRET перед публичным запуском.");
   }
   const webAuth = createWebAuth({ repoRoot, secret: sessionSecret });
-  const handler = createRequestHandler({ repoRoot, nabuHome, claudeBin, log, mcpConfigPath, webAuth });
+  // Public API v1 (bearer-токены, scoped по тенанту). Инжектируем общие с web/TG хелперы
+  // (те же threads/deps/claude-сессии в одном процессе демона).
+  const apiV1 = createApiV1({
+    repoRoot, nabuHome, claudeBin, mcpConfigPath, log,
+    sync: { readThreads, upsertThread, persistMessage, loadMessages, getLibDeps, getLibModule, runClaudeExchange },
+  });
+  const handler = createRequestHandler({ repoRoot, nabuHome, claudeBin, log, mcpConfigPath, webAuth, apiV1 });
   const server = createServer(handler);
 
   return new Promise((resolve, reject) => {
