@@ -20,7 +20,7 @@ import {
 } from "@nabu/lib";
 
 const deps = buildDepsOrExit("nabu-olimpos");
-const server = new McpServer({ name: "nabu-olimpos", version: "1.12.0" });
+const server = new McpServer({ name: "nabu-olimpos", version: "1.13.0" });
 
 const sitesRoot = () => process.env.NABU_SITES_ROOT || join(process.env.NABU_HOME || ".", "sites");
 const workdir = () => { const d = projectDir(deps.namespace); mkdirSync(d, { recursive: true }); return d; };
