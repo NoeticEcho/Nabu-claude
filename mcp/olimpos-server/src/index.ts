@@ -15,7 +15,7 @@ import { z } from "zod";
 import {
   buildDepsOrExit, installGracefulShutdown, ok, fail, wrap,
   listAgents, shareAgent, incrementAgentUsage,
-  projectDir, writeSandboxFile, readSandboxFile, runInSandbox, gitStatus, gitCommit, gitClone, dockerAvailable,
+  projectDir, writeSandboxFile, readSandboxFile, runInSandbox, gitStatus, gitCommit, gitClone, gitPush, dockerAvailable,
   publishSpace, unpublishSpace,
 } from "@nabu/lib";
 
@@ -143,6 +143,45 @@ server.registerTool("sandbox_git_clone", {
   title: "git clone", description: "Клонировать репозиторий в песочницу проекта (network). Для приватных — URL с токеном формирует пользователь/approval. write/external.",
   inputSchema: { remote: z.string().url() },
 }, (a) => wrap(async () => { const r = await gitClone(workdir(), a.remote); return ok(`clone exit=${r.code}`, { out: r.stdout.slice(-1500), code: r.code }); }));
+
+// Маскировать креды в URL (http(s)://user:token@host) перед выводом/аудитом.
+const maskCreds = (s: string): string => s.replace(/(https?:\/\/)([^@\s/]+)@/gi, "$1***@");
+
+server.registerTool("sandbox_git_push", {
+  title: "git push (approval)", description:
+    "Запушить коммиты проекта в удалённый репозиторий. ВЫСОКОРИСКОВОЕ (external write) — обязателен approvalId " +
+    "одобренного запроса: сначала вызови nabu-memory.request_approval({agent, riskClass:\"external\", " +
+    "action:\"git_push:<namespace>\", summary:<что и куда>}), дождись подтверждения пользователя (кнопка в чате/TG) " +
+    "и передай approvalId сюда. Approval одноразовый и привязан к пространству проекта.",
+  inputSchema: { approvalId: z.string().uuid().optional(), remote: z.string().optional(), branch: z.string().optional() },
+}, (a) => wrap(async () => {
+  const action = `git_push:${deps.namespace}`;
+  if (!a.approvalId) {
+    return fail(`Требуется одобрение: nabu-memory.request_approval({agent:"nabu-olimpos", riskClass:"external", action:"${action}", summary:"git push проекта <куда>"}) → подтверждение пользователя → approvalId сюда.`);
+  }
+  // Реальная проверка по БД (не на доверии к модели): атомарное одноразовое потребление + expires_at.
+  const ns = await deps.pg.resolveNamespace(deps.namespace);
+  const consumed = await deps.pg.queryOne<{ id: string }>(
+    `update action_approval set used_at = now()
+     where id = $1 and namespace = $2 and status = 'approved' and used_at is null
+       and action = $3 and (expires_at is null or expires_at > now())
+     returning id`,
+    [a.approvalId, ns, action],
+  );
+  if (!consumed) {
+    const row = await deps.pg.queryOne<{ status: string; action: string; used_at: string | null; expires_at: string | null }>(
+      "select status, action, used_at, expires_at from action_approval where id=$1 and namespace=$2", [a.approvalId, ns]);
+    if (!row) return fail("approvalId не найден");
+    if (row.used_at) return fail("Approval уже использован (одноразовый) — запросите новый request_approval");
+    if (row.expires_at && new Date(row.expires_at) <= new Date()) return fail("Approval истёк — запросите новый");
+    if (row.status !== "approved") return fail(`Approval в статусе '${row.status}' — нужен approved`);
+    return fail(`Approval выдан для '${row.action}', а не для '${action}'`);
+  }
+  if (!(await dockerAvailable())) return fail("Docker недоступен — push невозможен", {});
+  const r = await gitPush(workdir(), { remote: a.remote, branch: a.branch });
+  await deps.governance.logAction({ agent: "nabu-olimpos", riskClass: "external", action, status: r.code === 0 ? "ok" : "error", approvalId: a.approvalId, detail: { code: r.code, out: maskCreds(r.stdout.slice(-800)) } });
+  return ok(`push exit=${r.code}`, { out: maskCreds(r.stdout.slice(-1500)), code: r.code });
+}));
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

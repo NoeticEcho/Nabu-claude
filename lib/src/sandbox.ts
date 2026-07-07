@@ -106,6 +106,20 @@ export function gitStatus(workdir: string): Promise<SandboxRunResult> {
   return runInSandbox(workdir, "git status --porcelain -b", { image: "alpine/git", network: false, timeoutMs: 30_000 });
 }
 
+/**
+ * git push — ВЫСОКОРИСКОВОЕ (external write). Только после approval (проверяется в MCP-слое).
+ * remote — authenticated URL (может содержать токен) или origin; branch — целевая ветка.
+ * network:true. Токен НЕ логируется вызывающим (маскировать при аудите).
+ */
+export function gitPush(workdir: string, opts: { remote?: string; branch?: string } = {}): Promise<SandboxRunResult> {
+  const remote = (opts.remote || "origin").replace(/'/g, "");
+  const branch = (opts.branch || "HEAD").replace(/[^a-zA-Z0-9._/-]/g, "");
+  const dest = branch === "HEAD" ? "HEAD" : `HEAD:${branch}`;
+  return runInSandbox(workdir, `git push '${remote}' ${dest} 2>&1`, {
+    image: "alpine/git", network: true, timeoutMs: 120_000,
+  });
+}
+
 /** Доступен ли docker (для graceful degradation). */
 export function dockerAvailable(): Promise<boolean> {
   return new Promise((res) => {
