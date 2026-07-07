@@ -85,6 +85,12 @@
       "args": [
         "${CLAUDE_PLUGIN_ROOT}/mcp/connect-server/dist/index.js"
       ]
+    },
+    "nabu-olimpos": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp/olimpos-server/dist/index.js"
+      ]
     }
   }
 }

@@ -45,7 +45,7 @@ import { createWebAuth } from "./web-auth.mjs";
 // ---------------------------------------------------------------------------
 
 const LOG_ROTATE_BYTES = 5 * 1024 * 1024;
-const NABU_MCP_SERVERS = ["memory", "pipeline", "council", "voice", "analytics", "domain", "improve", "connect"];
+const NABU_MCP_SERVERS = ["memory", "pipeline", "council", "voice", "analytics", "domain", "improve", "connect", "olimpos"];
 
 /**
  * Явный MCP-конфиг для headless-сессий: `claude -p` НЕ поднимает MCP-серверы плагина

@@ -12,6 +12,7 @@ const CORE_ALLOWED = [
   "mcp__nabu-improve",
   "mcp__nabu-voice",
   "mcp__nabu-connect",
+  "mcp__nabu-olimpos",
   "WebSearch",
   "WebFetch",
   "Read",
