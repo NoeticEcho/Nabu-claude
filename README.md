@@ -71,7 +71,7 @@ you ──► web chat / telegram ──► nabu daemon ──► claude -p (hea
                                                   │  nabu-orchestrator skill (adjutant)
                                                   │  74 subagents · Council protocol
                                                   ▼
-              8 MCP servers (memory · pipeline · council · domain · analytics · improve · voice · connect)
+              9 MCP servers (memory · pipeline · council · domain · analytics · improve · voice · connect · olimpos)
                                                   ▼
                  local Docker: Postgres + pgvector · TypeDB graph · Ollama embeddings
 ```
@@ -120,7 +120,7 @@ Inside chat: 27 slash commands (`/nabu-ask`, `/nabu-council`, `/nabu-triage`,
 ```
 cli/        zero-dependency CLI, daemon, web chat, telegram bot
 lib/        TypeScript core: repositories, vault crypto, stats, personality engine
-mcp/        8 MCP servers (narrow, typed tools)
+mcp/        9 MCP servers (narrow, typed tools)
 agents/     73 Claude Code subagents (ministers, pipeline, memory, creators, specialists)
 skills/     adjutant-orchestrator + domain packs (nabu-marketing)
 schema/     additive Postgres SQL + TypeDB TQL (local standalone stack)
