@@ -36,11 +36,12 @@ export async function registerAgent(
 export async function seedBuiltinAgents(pg: Postgres, slugs: string[]): Promise<number> {
   let n = 0;
   for (const slug of slugs) {
-    await pg.query(
-      "insert into agent_registry(slug, visibility, spec_path) values ($1,'builtin',$2) on conflict (slug) do nothing",
+    // AUDIT R8: считаем РЕАЛЬНО вставленных (returning пуст при конфликте), а не число итераций.
+    const r = await pg.query(
+      "insert into agent_registry(slug, visibility, spec_path) values ($1,'builtin',$2) on conflict (slug) do nothing returning slug",
       [slug, `agents/${slug}.md`],
     );
-    n++;
+    n += r.length;
   }
   return n;
 }

@@ -286,7 +286,7 @@ function runClaude({ claudeBin, repoRoot, text, resumeSessionId, mcpConfigPath, 
 
     const timer = setTimeout(() => {
       errored = true;
-      stderrTail = "claude timed out after 10 minutes";
+      stderrTail = `claude timed out after ${Math.round(CHILD_TIMEOUT_MS / 60000)} minutes`;
       try { child.kill("SIGKILL"); } catch {}
       finish();
     }, CHILD_TIMEOUT_MS);

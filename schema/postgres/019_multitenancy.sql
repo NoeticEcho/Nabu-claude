@@ -5,7 +5,7 @@
 -- ── users: идентификаторы аккаунта + личное пространство ──
 alter table users add column if not exists tg_user_id  bigint;
 alter table users add column if not exists email        text;
-alter table users add column if not exists pass_hash    text;          -- argon2id, только web (P2)
+alter table users add column if not exists pass_hash    text;          -- scrypt (node:crypto), только web (P2)
 alter table users add column if not exists display_name text;
 alter table users add column if not exists personal_namespace uuid references mem_namespace(id);
 alter table users add column if not exists status       text not null default 'active';

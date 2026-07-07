@@ -118,7 +118,8 @@ const LOGIN_CODE_TTL_MS = 10 * 60 * 1000;
 /** Создать одноразовый код входа. Веб отдаёт deep-link t.me/<bot>?start=<code>. */
 export async function createLoginCode(pg: Postgres): Promise<string> {
   const code = randomBytes(9).toString("base64url"); // ~12 симв
-  await pg.query("delete from tg_login_code where created_at < now() - interval '15 minutes'"); // чистка старых
+  // чистка протухших (согласовано с LOGIN_CODE_TTL_MS, а не хардкод 15 мин — AUDIT R8)
+  await pg.query("delete from tg_login_code where created_at < now() - ($1 || ' milliseconds')::interval", [String(LOGIN_CODE_TTL_MS)]);
   await pg.query("insert into tg_login_code(code) values ($1)", [code]);
   return code;
 }
