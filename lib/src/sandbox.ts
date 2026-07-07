@@ -6,6 +6,7 @@
 // должны проходить через approval (governance) вне модели — этот модуль их только исполняет по команде.
 
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
@@ -58,8 +59,9 @@ export function runInSandbox(
 ): Promise<SandboxRunResult> {
   const image = opts.image || process.env.NABU_SANDBOX_IMAGE || "node:20-alpine";
   const timeoutMs = opts.timeoutMs ?? 120_000;
+  const cname = `nabu-sbx-${randomUUID().slice(0, 12)}`; // именуем контейнер → можем убить по имени при таймауте
   const args = [
-    "run", "--rm",
+    "run", "--rm", "--name", cname,
     "--network", opts.network ? "bridge" : "none",
     "--memory", opts.memory || "512m",
     "--cpus", opts.cpus || "1",
@@ -73,7 +75,14 @@ export function runInSandbox(
   return new Promise((res) => {
     let out = "", err = "", done = false, timedOut = false;
     const child = spawn("docker", args, { windowsHide: true });
-    const timer = setTimeout(() => { timedOut = true; try { child.kill("SIGKILL"); } catch { /* */ } }, timeoutMs);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      // AUDIT R8 M5: child.kill("SIGKILL") убивает лишь docker-CLI-клиент, а НЕ контейнер (при
+      // `docker run` сигнал не проксируется в контейнер). Форсированно удаляем контейнер по имени —
+      // это его останавливает и снимает CPU/RAM, иначе зациклившаяся команда пережила бы таймаут.
+      try { spawn("docker", ["rm", "-f", cname], { windowsHide: true }).on("error", () => { /* docker мог уже убрать (--rm) */ }); } catch { /* */ }
+      try { child.kill("SIGKILL"); } catch { /* */ }
+    }, timeoutMs);
     timer.unref?.();
     child.stdout?.on("data", (d) => { out += d; if (out.length > 2_000_000) out = out.slice(-2_000_000); });
     child.stderr?.on("data", (d) => { err += d; if (err.length > 500_000) err = err.slice(-500_000); });
