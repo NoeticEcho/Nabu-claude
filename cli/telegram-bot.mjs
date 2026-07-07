@@ -532,6 +532,23 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     await reply(msg, GREETING);
   }
 
+  // OlimpOS: подтверждение веб-входа по deep-link (/start nabu_<code>). Привязывает tg-аккаунт к коду.
+  async function handleTgLogin(msg, code) {
+    try {
+      const t = await resolveTenantEnv(repoRoot, msg, log); // побочно инициализирует _tenantLibPg + аккаунт
+      const lib = _tenantLibPg?.lib, pg = _tenantLibPg?.pg;
+      if (!lib || !pg) { await reply(msg, "Много-тенантный режим не готов. Повторите позже."); return; }
+      const okk = await lib.claimLoginCode(pg, code, msg.from.id, msg.from.first_name || msg.from.username);
+      await reply(msg, okk
+        ? "✅ Вход в веб-интерфейс подтверждён. Вернитесь на сайт — он войдёт автоматически."
+        : "⚠️ Код входа не найден или истёк. Сгенерируйте новый на сайте («Войти через Telegram»).");
+      void t;
+    } catch (e) {
+      log({ evt: "tg_login_error", error: String(e?.message ?? e).slice(0, 120) });
+      await reply(msg, "Не удалось обработать вход. Попробуйте ещё раз.");
+    }
+  }
+
   async function handleSetup(msg) {
     if (!msg.chat.is_forum) {
       await reply(msg, "Команда /setup работает только в супергруппе-форуме с включёнными темами. Создайте супергруппу, включите «Темы» (Topics) в её настройках, добавьте меня администратором и повторите /setup здесь.");
@@ -1172,7 +1189,14 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
       return;
     }
 
-    if (cmd === "/start") return handleStart(msg);
+    if (cmd === "/start") {
+      // OlimpOS: deep-link вход в веб — /start nabu_<code> в личке привязывает tg-аккаунт к коду.
+      const startArg = text.trim().split(/\s+/)[1] || "";
+      if (process.env.NABU_MULTITENANT === "1" && msg.chat?.type === "private" && startArg.startsWith("nabu_")) {
+        return handleTgLogin(msg, startArg.slice(5));
+      }
+      return handleStart(msg);
+    }
     if (cmd === "/setup") return handleSetup(msg);
     if (cmd === "/status") return handleStatus(msg);
     if (cmd === "/approvals") return handleApprovals(msg);

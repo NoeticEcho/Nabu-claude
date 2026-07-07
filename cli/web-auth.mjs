@@ -24,6 +24,21 @@ async function libPg(repoRoot) {
   return _libPg;
 }
 
+// Юзернейм бота для deep-link (кэш; из NABU_BOT_USERNAME или getMe по токену).
+let _botUsername;
+async function botUsername() {
+  if (_botUsername !== undefined) return _botUsername;
+  if (process.env.NABU_BOT_USERNAME) return (_botUsername = process.env.NABU_BOT_USERNAME.replace(/^@/, ""));
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return (_botUsername = null);
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/getMe`, { signal: AbortSignal.timeout(8000) });
+    const j = await r.json();
+    _botUsername = j?.result?.username || null;
+  } catch { _botUsername = null; }
+  return _botUsername;
+}
+
 function parseCookies(req) {
   const raw = req.headers.cookie || "";
   const out = {};
@@ -105,6 +120,22 @@ export function createWebAuth({ repoRoot, secret }) {
       const t = resolveTenant(req);
       // Всегда 200: фронт по authRequired решает, показывать ли форму логина (в однопольз. режиме — нет).
       return sendJson(res, 200, { authRequired: enabled, authenticated: !!t, userId: t?.userId ?? null }), true;
+    }
+
+    // Вход через Telegram (deep-link). start → код+ссылка; poll → сессия, когда бот подтвердил.
+    if (method === "POST" && path === "/api/auth/telegram/start") {
+      const code = await lib.createLoginCode(pg);
+      const username = await botUsername();
+      const deepLink = username ? `https://t.me/${username}?start=nabu_${code}` : null;
+      return sendJson(res, 200, { code, deepLink }), true;
+    }
+    if (method === "GET" && path === "/api/auth/telegram/poll") {
+      const url = new URL(req.url, "http://localhost");
+      const code = url.searchParams.get("code") || "";
+      const t = code ? await lib.consumeLoginCode(pg, code) : null;
+      if (!t) return sendJson(res, 200, { pending: true }), true;
+      const token = issue(t.userId);
+      return sendJson(res, 200, { ok: true, userId: t.userId }, { "set-cookie": makeCookie(token, SESSION_TTL_MS) }), true;
     }
 
     return sendJson(res, 404, { error: "unknown_auth_route" }), true;

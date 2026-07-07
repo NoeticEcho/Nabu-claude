@@ -504,6 +504,9 @@
     <input id="authPass" type="password" placeholder="пароль (минимум 8 символов)" autocomplete="current-password" style="width:100%;box-sizing:border-box;margin-bottom:8px;padding:10px;border-radius:8px;border:1px solid #2a3245;background:#0f1420;color:#e6e8ee">
     <div id="authErr" style="color:#ff8a8a;font-size:12px;min-height:16px;margin-bottom:6px"></div>
     <button id="authSubmit" style="width:100%;padding:10px;border:0;border-radius:8px;background:#4f8cff;color:#fff;font-weight:600;cursor:pointer">Войти</button>
+    <div style="display:flex;align-items:center;gap:10px;margin:14px 0;opacity:.5;font-size:12px"><span style="flex:1;height:1px;background:#8884"></span>или<span style="flex:1;height:1px;background:#8884"></span></div>
+    <button id="authTg" style="width:100%;padding:10px;border:0;border-radius:8px;background:#229ED9;color:#fff;font-weight:600;cursor:pointer">✈ Войти через Telegram</button>
+    <div id="authTgHint" style="font-size:12px;opacity:.7;margin-top:8px;text-align:center"></div>
     <div style="margin-top:12px;font-size:13px;opacity:.8;text-align:center"><a href="#" id="authToggle" style="color:#7ba7ff">Нет аккаунта? Зарегистрироваться</a></div>
   </div>
 </div>
@@ -531,10 +534,28 @@
       err.textContent = j.error || ("Ошибка ("+r.status+")");
     }catch(e){ err.textContent="Сеть недоступна"; }
   }
+  var tgPoll=null;
+  async function tgLogin(){
+    var hint=document.getElementById("authTgHint");
+    try{
+      var r=await fetch("/api/auth/telegram/start",{method:"POST"}); var j=await r.json();
+      if(!j.deepLink){ hint.textContent="Telegram-бот не настроен на сервере."; return; }
+      window.open(j.deepLink,"_blank");
+      hint.textContent="Откройте бота в Telegram и нажмите «Старт». Ждём подтверждения…";
+      if(tgPoll) clearInterval(tgPoll);
+      var tries=0;
+      tgPoll=setInterval(async function(){
+        tries++; if(tries>150){ clearInterval(tgPoll); hint.textContent="Время ожидания вышло — попробуйте снова."; return; }
+        try{ var p=await fetch("/api/auth/telegram/poll?code="+encodeURIComponent(j.code)); var pj=await p.json();
+          if(pj.ok){ clearInterval(tgPoll); location.reload(); } }catch(e){}
+      },2000);
+    }catch(e){ hint.textContent="Сеть недоступна."; }
+  }
   document.addEventListener("DOMContentLoaded", function(){
     document.getElementById("authSubmit").addEventListener("click", submit);
     document.getElementById("authPass").addEventListener("keydown", function(e){ if(e.key==="Enter") submit(); });
     document.getElementById("authToggle").addEventListener("click", function(e){ e.preventDefault(); setMode(mode==="login"?"register":"login"); });
+    document.getElementById("authTg").addEventListener("click", function(e){ e.preventDefault(); tgLogin(); });
     setMode("login");
   });
   // Проверка ДО инициализации основного чата.

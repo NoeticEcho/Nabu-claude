@@ -111,6 +111,38 @@ export async function loginWebUser(pg: Postgres, email: string, password: string
   return { userId: u.id, namespace: personalNs(u.id) };
 }
 
+// ── Вход через Telegram (deep-link, OlimpOS P2) ──
+
+const LOGIN_CODE_TTL_MS = 10 * 60 * 1000;
+
+/** Создать одноразовый код входа. Веб отдаёт deep-link t.me/<bot>?start=<code>. */
+export async function createLoginCode(pg: Postgres): Promise<string> {
+  const code = randomBytes(9).toString("base64url"); // ~12 симв
+  await pg.query("delete from tg_login_code where created_at < now() - interval '15 minutes'"); // чистка старых
+  await pg.query("insert into tg_login_code(code) values ($1)", [code]);
+  return code;
+}
+
+/** Бот привязывает свой tg_user_id к коду (после /start <code>). Создаёт тенанта, если нужно. */
+export async function claimLoginCode(pg: Postgres, code: string, tgUserId: number, displayName?: string): Promise<boolean> {
+  const row = await pg.queryOne<{ code: string; created_at: string }>("select code, created_at from tg_login_code where code = $1", [code]);
+  if (!row) return false;
+  await resolveTenantByTelegram(pg, tgUserId, { displayName }); // гарантируем аккаунт
+  const r = await pg.query("update tg_login_code set tg_user_id = $2 where code = $1 returning code", [code, tgUserId]);
+  return r.length > 0;
+}
+
+/** Веб опрашивает код: если привязан ботом и не протух — вернуть тенанта и погасить код. */
+export async function consumeLoginCode(pg: Postgres, code: string): Promise<Tenant | null> {
+  const row = await pg.queryOne<{ tg_user_id: string | null; created_at: string }>("select tg_user_id, created_at from tg_login_code where code = $1", [code]);
+  if (!row) return null;
+  if (Date.now() - new Date(row.created_at).getTime() > LOGIN_CODE_TTL_MS) { await pg.query("delete from tg_login_code where code=$1", [code]); return null; }
+  if (row.tg_user_id == null) return null; // ещё не подтверждён
+  const t = await resolveTenantByTelegram(pg, Number(row.tg_user_id), {});
+  await pg.query("delete from tg_login_code where code=$1", [code]); // одноразовый
+  return t;
+}
+
 // ── Пространства проектов/команд (OlimpOS P3) ──
 
 export interface SpaceTenant {
