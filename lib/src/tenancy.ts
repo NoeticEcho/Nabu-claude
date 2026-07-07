@@ -177,7 +177,13 @@ export async function publishSpace(
   const taken = await pg.queryOne<{ namespace: string }>("select namespace from space where slug = $1 and namespace <> $2", [safe, namespaceId]);
   if (taken) throw new Error(`slug '${safe}' уже занят другим пространством`);
   const r = generateSite(srcDir, join(sitesRoot, safe), { title: opts.title });
-  await pg.query("update space set slug = $2, visibility = 'public', updated_at = now() where namespace = $1", [namespaceId, safe]).catch(() => { /* space может отсутствовать для личных — ок */ });
+  // AUDIT R8 M3: НЕ глушим ошибки. 0 обновлённых строк = у личного пространства нет строки `space`
+  // (ожидаемо, тихо); реальная ошибка БД теперь пробрасывается наружу, а не выдаётся за успех
+  // (иначе сайт писался бы на диск, а visibility/slug не сохранялись — гарантия уникальности slug не durable).
+  await pg.query(
+    "update space set slug = $2, visibility = 'public', updated_at = now() where namespace = $1 returning namespace",
+    [namespaceId, safe],
+  );
   return { slug: safe, pages: r.pages, url: `/s/${safe}/` };
 }
 
