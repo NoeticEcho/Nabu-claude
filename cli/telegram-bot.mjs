@@ -70,8 +70,20 @@ async function resolveTenantEnv(repoRoot, msg, log) {
     const { lib, pg } = _tenantLibPg;
     // P3: групповой чат → ОБЩЕЕ проектное пространство (память/задачи скоупятся к проекту, не к личному).
     if (chatType === "group" || chatType === "supergroup") {
-      const gs = await lib.resolveGroupSpace(pg, msg.chat.id, { name: msg.chat.title, creatorTgId: tgId });
-      const sender = await lib.resolveTenantByTelegram(pg, tgId, { displayName: senderName });
+      const chatId = msg.chat.id;
+      // AUDIT R8: membership-гейт — НЕ авто-провижинить проект для случайной группы (иначе любой,
+      // добавивший бота, создаёт пространство + жжёт квоту Claude). Пускаем, только если:
+      // (а) проектное пространство уже существует; (б) автор — уже зарегистрированный пользователь
+      // (делал /start в личке); (в) chat.id в явном allowlist NABU_GROUP_ALLOWLIST (csv).
+      const existing = await pg.queryOne("select namespace from space where tg_chat_id = $1", [chatId]);
+      const senderKnown = existing ? null : await lib.resolveTenantByTelegram(pg, tgId, { autoRegister: false });
+      const allow = (process.env.NABU_GROUP_ALLOWLIST || "").split(",").map((s) => s.trim()).filter(Boolean);
+      if (!existing && !senderKnown && !allow.includes(String(chatId))) {
+        log?.({ evt: "group_gated", chat: chatId });
+        return null; // Шаг 1 (fail-closed) откажет в обмене и не создаст space/аккаунт
+      }
+      const gs = await lib.resolveGroupSpace(pg, chatId, { name: msg.chat.title, creatorTgId: tgId });
+      const sender = senderKnown || await lib.resolveTenantByTelegram(pg, tgId, { displayName: senderName });
       if (sender) await lib.addMember(pg, gs.spaceId, sender.userId, "member"); // автор — участник проекта
       return { namespace: gs.namespace, userId: gs.userId, group: true, senderName };
     }
