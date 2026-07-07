@@ -123,12 +123,21 @@ export async function createLoginCode(pg: Postgres): Promise<string> {
   return code;
 }
 
-/** Бот привязывает свой tg_user_id к коду (после /start <code>). Создаёт тенанта, если нужно. */
+/**
+ * Бот привязывает свой tg_user_id к коду (после /start <code>). Создаёт тенанта, если нужно.
+ * ОДНОРАЗОВО и с TTL (AUDIT R8 M2): claim проходит ТОЛЬКО если код ещё не заявлен (`tg_user_id is null`)
+ * и не протух. Иначе — перехвативший deep-link код мог бы перепривязать его к своему аккаунту
+ * (account confusion / session fixation). Проверка «не заявлен» атомарна в самом UPDATE.
+ */
 export async function claimLoginCode(pg: Postgres, code: string, tgUserId: number, displayName?: string): Promise<boolean> {
-  const row = await pg.queryOne<{ code: string; created_at: string }>("select code, created_at from tg_login_code where code = $1", [code]);
-  if (!row) return false;
   await resolveTenantByTelegram(pg, tgUserId, { displayName }); // гарантируем аккаунт
-  const r = await pg.query("update tg_login_code set tg_user_id = $2 where code = $1 returning code", [code, tgUserId]);
+  const r = await pg.query(
+    `update tg_login_code set tg_user_id = $2
+     where code = $1 and tg_user_id is null
+       and created_at > now() - ($3 || ' milliseconds')::interval
+     returning code`,
+    [code, tgUserId, String(LOGIN_CODE_TTL_MS)],
+  );
   return r.length > 0;
 }
 
