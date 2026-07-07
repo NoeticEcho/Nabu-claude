@@ -672,6 +672,16 @@ export function startTelegramBot({ repoRoot, nabuHome, claudeBin = process.platf
     // MCP-серверов (память/домен/знания) становятся PER-TENANT — иначе разные пользователи делили бы
     // один conv-<role> (общая сессия/история = утечка). Без флага — прежнее однопользовательское поведение.
     const tenant = await resolveTenantEnv(repoRoot, msg, log);
+    // C1 (fail-CLOSED): в много-тенантном режиме отсутствие тенанта = ошибка резолвинга (в норме
+    // резолвинг всегда создаёт/находит тенанта; null бывает только при сбое БД или отказе гейта).
+    // НЕ деградируем к дефолтному скоупу владельца демона (иначе реплика чужого пользователя
+    // исполнилась бы в приватном пространстве владельца + общей сессии — cross-tenant утечка).
+    if (process.env.NABU_MULTITENANT === "1" && !tenant) {
+      stopTyping();
+      log?.({ evt: "tenant_refused", chat: msg?.chat?.type });
+      await reply(msg, "⚠️ Не удалось определить профиль (временная ошибка или чат не активирован). Попробуйте ещё раз позже.");
+      return;
+    }
     const extraEnv = tenant ? { NABU_NAMESPACE: tenant.namespace, NABU_USER_ID: tenant.userId } : undefined;
     const cid = tenant ? `conv-${role}-${tenant.userId}` : convId(role); // conv-adjutant[-<userId/projectId>]
     const skey = tenant ? `${sessionKey}:${tenant.userId}` : sessionKey;   // сессия per-tenant/проект
