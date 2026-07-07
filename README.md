@@ -128,6 +128,17 @@ commands/   27 slash commands
 docs/       product docs (Russian) · ZERO_CONFIG.md · ROADMAP.md
 ```
 
+## 🏛 OlimpOS — collaborative multi-tenant mode
+
+Run one Nabu instance for a whole team. Users register via **Telegram** or **email/password**;
+each gets an isolated personal space (memory/knowledge never mix between users). Group Telegram
+chats become shared **project spaces** with per-author attribution; projects get a Kanban board
+(epics/sprints/velocity), **docker-sandboxed** coding (`git push` is approval-gated), and
+one-click **static-site publishing** at `/s/<slug>`. Agents, skills and experience can be shared
+to a common **marketplace** — personal data stays personal. Off by default (`NABU_MULTITENANT=1`
+enables it on a VPS). User guide: [docs/OLIMPOS_GUIDE.md](docs/OLIMPOS_GUIDE.md) · deployment:
+[docs/DEPLOY_HTTPS.md](docs/DEPLOY_HTTPS.md) · design: [docs/OLIMPOS_ROADMAP.md](docs/OLIMPOS_ROADMAP.md).
+
 ## 🌱 Nabu Commons
 
 Instances of Nabu improve the project together. With the user's opt-in, an instance
