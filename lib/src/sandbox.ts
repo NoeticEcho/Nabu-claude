@@ -79,6 +79,10 @@ export function runInSandbox(
     "--cpus", opts.cpus || "1",
     "--pids-limit", "256",
     "--security-opt", "no-new-privileges",
+    // AUDIT R8: запускаем контейнер под UID/GID демона (не root) → файлы в /work принадлежат демону,
+    // а не root, и процесс в контейнере не может писать как root вне смонтированного workdir.
+    // (--read-only rootfs осознанно НЕ включаем: ломает сборки, пишущие в /tmp, ~/.npm и т.п.)
+    ...(process.getuid ? ["--user", `${process.getuid()}:${process.getgid?.() ?? process.getuid()}`] : []),
     "-v", `${realpathSync(workdir)}:/work`,
     "-w", "/work",
     image,

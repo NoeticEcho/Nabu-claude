@@ -129,23 +129,26 @@ server.registerTool("sandbox_run", {
   return ok(`exit=${r.code}${r.timedOut ? " (таймаут)" : ""}`, { code: r.code, stdout: r.stdout.slice(-8000), stderr: r.stderr.slice(-2000), timedOut: r.timedOut });
 }));
 
+// Маскировать креды в URL (http(s)://user:token@host) перед выводом/аудитом (AUDIT R8).
+const maskCreds = (s: string): string => s.replace(/(https?:\/\/)([^@\s/]+)@/gi, "$1***@");
+// AUDIT R8: единый graceful-гвард на отсутствие docker (иначе tools отдавали `exit=-1` без пояснения).
+const needDocker = async (): Promise<null | ReturnType<typeof fail>> =>
+  (await dockerAvailable()) ? null : fail("Docker недоступен — операция песочницы невозможна", {});
+
 server.registerTool("sandbox_git_status", {
   title: "git status", description: "Статус git в песочнице проекта.",
   inputSchema: {}, annotations: { readOnlyHint: true },
-}, () => wrap(async () => { const r = await gitStatus(workdir()); return ok("git status", { out: r.stdout, code: r.code }); }));
+}, () => wrap(async () => { const g = await needDocker(); if (g) return g; const r = await gitStatus(workdir()); return ok("git status", { out: maskCreds(r.stdout), code: r.code }); }));
 
 server.registerTool("sandbox_git_commit", {
   title: "git commit", description: "Закоммитить изменения локально в песочнице (без push — push наружу требует approval). write.",
   inputSchema: { message: z.string().min(1) },
-}, (a) => wrap(async () => { const r = await gitCommit(workdir(), a.message); return ok(`commit exit=${r.code}`, { out: r.stdout.slice(-1500), code: r.code }); }));
+}, (a) => wrap(async () => { const g = await needDocker(); if (g) return g; const r = await gitCommit(workdir(), a.message); return ok(`commit exit=${r.code}`, { out: maskCreds(r.stdout.slice(-1500)), code: r.code }); }));
 
 server.registerTool("sandbox_git_clone", {
   title: "git clone", description: "Клонировать репозиторий в песочницу проекта (network). Для приватных — URL с токеном формирует пользователь/approval. write/external.",
   inputSchema: { remote: z.string().url() },
-}, (a) => wrap(async () => { const r = await gitClone(workdir(), a.remote); return ok(`clone exit=${r.code}`, { out: r.stdout.slice(-1500), code: r.code }); }));
-
-// Маскировать креды в URL (http(s)://user:token@host) перед выводом/аудитом.
-const maskCreds = (s: string): string => s.replace(/(https?:\/\/)([^@\s/]+)@/gi, "$1***@");
+}, (a) => wrap(async () => { const g = await needDocker(); if (g) return g; const r = await gitClone(workdir(), a.remote); return ok(`clone exit=${r.code}`, { out: maskCreds(r.stdout.slice(-1500)), code: r.code }); }));
 
 server.registerTool("sandbox_git_push", {
   title: "git push (approval)", description:
@@ -159,6 +162,9 @@ server.registerTool("sandbox_git_push", {
   if (!a.approvalId) {
     return fail(`Требуется одобрение: nabu-memory.request_approval({agent:"nabu-olimpos", riskClass:"external", action:"${action}", summary:"git push проекта <куда>"}) → подтверждение пользователя → approvalId сюда.`);
   }
+  // AUDIT R8: проверяем docker ДО потребления approval — иначе при отсутствии docker одноразовое
+  // одобрение сгорало бы впустую (used_at выставлялся до попытки push).
+  const g = await needDocker(); if (g) return g;
   // Реальная проверка по БД (не на доверии к модели): атомарное одноразовое потребление + expires_at.
   const ns = await deps.pg.resolveNamespace(deps.namespace);
   const consumed = await deps.pg.queryOne<{ id: string }>(
@@ -177,7 +183,6 @@ server.registerTool("sandbox_git_push", {
     if (row.status !== "approved") return fail(`Approval в статусе '${row.status}' — нужен approved`);
     return fail(`Approval выдан для '${row.action}', а не для '${action}'`);
   }
-  if (!(await dockerAvailable())) return fail("Docker недоступен — push невозможен", {});
   const r = await gitPush(workdir(), { remote: a.remote, branch: a.branch });
   await deps.governance.logAction({ agent: "nabu-olimpos", riskClass: "external", action, status: r.code === 0 ? "ok" : "error", approvalId: a.approvalId, detail: { code: r.code, out: maskCreds(r.stdout.slice(-800)) } });
   return ok(`push exit=${r.code}`, { out: maskCreds(r.stdout.slice(-1500)), code: r.code });
