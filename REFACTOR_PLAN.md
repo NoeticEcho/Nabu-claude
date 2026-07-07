@@ -1,139 +1,135 @@
-# REFACTOR_PLAN.md — Round 7 (2026-07-06)
+# REFACTOR_PLAN.md — Round 8 (2026-07-07)
 
-План на основе `AUDIT.md` (R7). Порядок: **безопасность-гейты → стабильность демона → корректность
-remote-эмбеддера → доки → minor**. Каждый шаг атомарен (оставляет проект рабочим), с отдельным
-коммитом. После каждого шага: `npm run build` + `npm test` (+ `npm run test:hooks` где трогаем guard).
+На основе `AUDIT.md` (R8). Порядок: сначала **critical** (ломает изоляцию), затем **major**, затем
+сгруппированные **minor**. Каждый шаг атомарен (проект остаётся рабочим), с отдельным коммитом.
+После каждого шага: `npx tsc -b` (typecheck/build) + `npm test` (87 unit) + целевой тест шага.
 
-Не меняю публичные API/контракты без явной пометки. Не «улучшаю» попутно вне плана. Правило отката:
-2–3 неудачные попытки починить шаг → откат, пометка `blocked`, переход дальше.
-
-Легенда: 🟠 major · 🟡 minor.
+Легенда проверки: **B**=build/tsc · **T**=npm test · **+**=новый целевой тест/прогон.
 
 ---
 
-## Блок A — Безопасность-гейты (первым)
+## CRITICAL
 
-### A1 🟠 Guard: закрыть обход через `xargs`  (G1)
-- **Что**: в `guard-destructive.sh` добавить паттерн: команда содержит `xargs`/`parallel` + деструктив (`rm`, `rm -rf`, `shred`, `unlink`, `-delete`) → DENY, независимо от наличия цели в строке.
-- **Файлы**: `scripts/hooks/guard-destructive.sh`; кейсы в `scripts/hooks/test-guard.sh`.
-- **Проверка**: `find . | xargs rm -rf` → DENY (exit 2); `npm run test:hooks` зелёный.
-
-### A2 🟠 Guard: `DELETE/UPDATE` без WHERE — убрать комментарии перед проверкой  (G2)
-- **Что**: перед проверкой убрать SQL-комментарии (`--…`, `/*…*/`), разбить по `;`, для каждого `delete from`/`update` проверять `where` в этом же стейтменте; неуверенный парс → DENY (fail-closed).
-- **Файлы**: `guard-destructive.sh`; кейсы (where-в-комменте, where-в-имени-таблицы → DENY; легитимный `… WHERE id=1` → ALLOW).
-- **Проверка**: оба обхода из AUDIT → DENY, легитимный → ALLOW; `npm run test:hooks`.
-- **Оговорка**: best-effort regex-гард (динамические имена `X=rm;$X` не покрыть — реальный энфорсер = approval). Дописать в шапку скрипта.
-
-### A3 🟠 Evals: offline-фикстуры safety + CI-гейт  (N1, N5)
-- **Что**: (1) фикстуры-реплеи `privacy` (11) + фикс `must_not_include`-матчера (`evals/runner.mjs`) — не считать SKIP за pass, учитывать отрицание. (2) crisis-фикстуры — отдельной итерацией с ручной вычиткой (safety-критично). (3) добавить fixture-гейт в CI.
-- **Файлы**: `evals/fixtures/privacy/*.json`, `evals/runner.mjs`, `.github/workflows/ci.yml`.
-- **Проверка**: `node evals/runner.mjs` — privacy не all-SKIP; CI-job проходит.
-- **Требует решения**: см. вопрос 3 ниже.
-
-### A4 🟡 `.env` права 0600  (Q3)
-- **Что**: после записи `.env` — `chmodSync(path, 0o600)`.
-- **Файлы**: `cli/nabu.mjs`.
-- **Проверка**: `stat -c%a ~/Nabu/.env` = 600.
+### Шаг 1 — Fail-closed резолвинг тенанта (C1)
+**Проблема:** в много-тенанте сбой резолвинга → реплика исполняется в scope владельца демона + общая сессия.
+**Что меняю:**
+- `cli/telegram-bot.mjs`: `resolveTenantEnv` — различать «легитимно нет тенанта» (одно-польз. режим) и
+  «ошибка/не удалось в multitenant». В `runAgent`: если `process.env.NABU_MULTITENANT==="1"` и `tenant` пуст —
+  **отказать в обмене** (ответить пользователю понятной ошибкой, не спавнить claude, не трогать общие cid/skey).
+  В одно-польз. режиме поведение прежнее (null → дефолтный скоуп — это корректно).
+- Тот же гейт применить к `/start`-login-пути (`handleTgLogin`) и к chat-allow, где уместно.
+**Файлы:** `cli/telegram-bot.mjs`.
+**Проверка:** B, T + **новый тест** `test/tenant-failclosed.mjs`: при `NABU_MULTITENANT=1` и брошенной ошибке
+резолвинга — обмен отклонён, `extraEnv`/`cid`/`skey` не деградируют к общим; при выключенном флаге — прежнее поведение.
 
 ---
 
-## Блок B — Стабильность демона (freeze + race)
+## MAJOR
 
-Подход: тяжёлые `spawnSync`/`sh()` в процессе демона → async (`shAsync`/`spawn`+await).
+### Шаг 2 — `shareAgent` только для владельца (M1)
+**Что меняю:** `lib/src/registry.ts:shareAgent` — добавить `and origin_user=$2` в WHERE (builtin уже исключён).
+Приватный агент без `origin_user` становится не-шарабельным (fail-closed) — приемлемо.
+**Файлы:** `lib/src/registry.ts`.
+**Проверка:** B, T + **тест**: User A не может шарить агента B (0 строк, `false`); шарит своего (`true`).
 
-### B1 🟠 Async update-check в tick()  (E1)
-- `sh("git fetch")`/`rev-list` → `await shAsync`; не бить `git fetch` на первом тике.
-- **Файлы**: `cli/nabu.mjs`. **Проверка**: демон отвечает без задержки; `update-status.json` обновляется.
+### Шаг 3 — Login-код одноразовый и с TTL (M2)
+**Что меняю:** `lib/src/tenancy.ts:claimLoginCode` — `update ... set tg_user_id=$2 where code=$1 and
+tg_user_id is null and created_at > now() - interval '10 minutes' returning code`; `false` при 0 строк.
+**Файлы:** `lib/src/tenancy.ts`.
+**Проверка:** B, T + **тест**: повторный claim → `false`; протухший → `false`; свежий незаявленный → `true`.
 
-### B2 🟠 Async установка Whisper  (E2)
-- `ensureWhisper()`: `spawnSync uv venv/pip` → async `spawn`+await (промис `whisperInstalling` уже есть).
-- **Файлы**: `cli/telegram-bot.mjs`. **Проверка**: во время установки демон отвечает в других топиках/веб.
+### Шаг 4 — `publishSpace` не глушит ошибки (M3)
+**Что меняю:** `lib/src/tenancy.ts:publishSpace` — заменить `.catch(()=>{})` на проверку `rowCount`:
+если 0 строк обновлено — это личное пространство без `space`-строки (ок, тихо); реальную ошибку БД —
+**пробрасывать** (не возвращать успех). Порядок: сначала застолбить slug/публикацию в БД, затем `generateSite`
+(чтобы при конфликте slug не писать файлы зря) — если это не усложнит; иначе минимально: не проглатывать ошибку.
+**Файлы:** `lib/src/tenancy.ts`.
+**Проверка:** B, T + **тест**: успешная публикация помечает `visibility='public'`+slug; смоделированная ошибка
+БД пробрасывается, а не «успех».
 
-### B3 🟠 Async self-update  (E4)
-- `doUpdate(inDaemon)`: `npm install`/`build` через `shAsync`.
-- **Файлы**: `cli/nabu.mjs`. **Проверка**: build; логика opt-in не сломана.
+### Шаг 5 — Sandbox: убивать контейнер по таймауту (M5)
+**Что меняю:** `lib/src/sandbox.ts:runInSandbox` — запускать `docker run --name nabu-sbx-<rand>` и по таймауту
+делать `docker kill`/`rm -f <name>` вместо `child.kill` (который бьёт только клиент). Имя — из счётчика+prefix
+(без `Math.random`/`Date.now`, они запрещены в этой среде — использовать `randomUUID` из node:crypto).
+**Файлы:** `lib/src/sandbox.ts`.
+**Проверка:** B, T + **прогон** (если docker доступен): команда `sleep 600` с `timeoutMs=3000` → контейнер
+реально исчезает (`docker ps` без него) в пределах ~секунд после таймаута.
 
-### B4 🟠 Async docker/backup + бинари  (E5)
-- `dockerAvailable/containerExists/cmdBackup` (путь планировщика) + `pdftotext/tesseract/unzip` → async.
-- **Файлы**: `cli/nabu.mjs`, `cli/telegram-bot.mjs`. **Проверка**: `nabu backup` из CLI работает.
-
-### B5 🟠 Лок на claude-сессию роль-разговора  (E3)
-- Per-`conversationId` async-мьютекс (in-memory, один процесс демона), сериализует `claude --resume` для одного conv (web+TG). Защита от двойной отправки в web.
-- **Файлы**: `cli/claude-run.mjs` (хелпер), `cli/chat-server.mjs`, `cli/telegram-bot.mjs`.
-- **Проверка**: два параллельных запроса в один conv → последовательно, история цела.
-
-### B6 🟡 Guard второго демона + таймаут джоба  (G4, G5)
-- `cmdDaemon` отказывает при живом PID; `runClaudeJob` — spawn с таймаутом+SIGKILL.
-- **Файлы**: `cli/nabu.mjs`. **Проверка**: двойной `nabu daemon` → ошибка; зависший джоб убит.
-
----
-
-## Блок C — Корректность на remote-эмбеддере
-
-### C1 🟠 Ключ кэша domain-vecs = модель+dim+провайдер  (E6)
-- В хэш кэша добавить модель/dim/провайдер → авто-инвалидация при смене.
-- **Файлы**: `lib/src/domain-classify.ts`. **Проверка**: смена `NABU_EMBED_DIM`/модели → пересчёт (unit-тест хэша).
-
-### C2 🟠 embedQuery принимает visibility запроса  (G3)
-- `embedQuery(text, visibility='default')` → `assertPrivacy(visibility)`. Поиск по library(default) не требует ALLOW_REMOTE; приватная память — требует. Вызовы recall/knowledge.search передают фактический visibility.
-- **Файлы**: `lib/src/embeddings.ts`, `lib/src/repositories/{memory,knowledge}.ts`. **Проверка**: на remote без ALLOW_REMOTE поиск по default работает, по private — отклоняется; unit-тест.
-- **Требует решения**: вопрос 2 ниже.
+### Шаг 6 — Sandbox: закрыть symlink-traversal (M4)
+**Что меняю:** `lib/src/sandbox.ts:withinWorkdir` (+ `writeSandboxFile`/`readSandboxFile`) — проверять
+containment по `realpath` РОДИТЕЛЬСКОЙ директории цели (для write — существующего предка; для read — самой цели,
+если существует), а не только корня. Отвергать, если реальный путь вне `realpath(workdir)`.
+**Файлы:** `lib/src/sandbox.ts`.
+**Проверка:** B, T + **тест** `test/sandbox-traversal.mjs`: symlink `evil -> /etc` внутри workdir →
+`readSandboxFile("evil/passwd")` и `writeSandboxFile("evil/x", …)` отвергаются; обычные пути внутри — работают.
 
 ---
 
-## Блок D — Доки и комментарии
+## MINOR (сгруппировано в атомарные батчи)
 
-### D1 🟠 Skills-противоречие + числа  (S1,S4,S5,S6,S7,S8)
-- ARCHITECTURE §6/plugin.json: «единственный skill» → «адъютант + 3 доменных пака». Числа: 73→74, 26→27, 47→59(+28), 34→39. Дополнить список слэш-команд.
-- **Файлы**: `README.md`, `README.ru.md`, `ARCHITECTURE.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `docs/LANDING.md`, `.claude-plugin/plugin.json`.
+### Шаг 7 — Sandbox/olimpos hardening (minor-батч песочницы)
+**Что меняю:**
+- `mcp/olimpos-server/src/index.ts`: применить `maskCreds` к выводу `sandbox_git_clone` (утечка токена);
+  проверять `dockerAvailable()` в `sandbox_git_status/commit/clone`; перенести `dockerAvailable()` в
+  `sandbox_git_push` ДО потребления approval (не жечь одобрение при отсутствии docker).
+- `lib/src/sandbox.ts`: запускать контейнер с `--user`(non-root) и по возможности `--read-only` + tmpfs
+  (не ломая запись в `/work`).
+**Файлы:** `mcp/olimpos-server/src/index.ts`, `lib/src/sandbox.ts`.
+**Проверка:** B, T + греп `maskCreds` в clone; ручной прогон push при выключенном docker (approval не сгорает).
 
-### D2 🟠 Раскрыть remote-embeddings + stale-комменты  (S2)
-- README privacy: локально по умолчанию + опц. OpenAI-совместимый endpoint под `NABU_EMBED_ALLOW_REMOTE` (default-only в облако; vault не эмбеддится). Поправить комменты `memory.ts:2`, `memory-server:3,31`.
-- **Файлы**: `README.md`, `README.ru.md`, `lib/src/repositories/memory.ts`, `mcp/memory-server/src/index.ts`.
+### Шаг 8 — sitegen/чат-сервер: defense-in-depth путей и SVG (minor-батч сайтов)
+**Что меняю:**
+- `lib/src/sitegen.ts`: явно отвергать slug `.`/`..`/пустой; удалить мёртвый `target` (cat 5).
+- `cli/chat-server.mjs:safeSitePath`: явно отвергать `safeSlug ∈ {".",".."}` (хотя не эксплуатируется — F-NEG-1).
+- SVG-ассеты публичных spaces отдавать с `Content-Type: text/plain` (или документировать риск) — не как `image/svg+xml`.
+**Файлы:** `lib/src/sitegen.ts`, `cli/chat-server.mjs`.
+**Проверка:** B, T + **тест**: `resolveSitePath(root,"..",…)`→null; `generateSite` со slug `..`→ошибка.
 
-### D3 🟠 Документировать nabu-onboard/tasks/library  (S3)
-- **Файлы**: `CLAUDE.md`, `ARCHITECTURE.md`.
+### Шаг 9 — Web-auth hardening (minor-батч аутентификации)
+**Что меняю:**
+- `cli/web-auth.mjs`: cookie-атрибут `Secure` при `NABU_MULTITENANT=1`; простой in-memory rate-limit
+  (N попыток/окно) на `login`/`register`/`telegram/poll`.
+- `cli/chat-server.mjs`: fail-closed/warn при дефолтном `"nabu-dev-secret"` в много-тенанте (лог-предупреждение
+  на старте, не молчаливый дефолт).
+**Файлы:** `cli/web-auth.mjs`, `cli/chat-server.mjs`.
+**Проверка:** B, T + **тест**: >N логинов подряд → 429; cookie содержит `Secure` при флаге.
+
+### Шаг 10 — Валидация эндпоинтов и error-surface (minor-батч API)
+**Что меняю:**
+- `cli/chat-server.mjs` (`/api/olimpos/*`): валидировать `taskId` (наличие) и `column ∈ {todo,doing,review,done}`
+  до вызова; не отдавать сырой текст внутренней ошибки (обобщённое сообщение + лог детали на сервер).
+- `lib/src/agile.ts`: `sprintMetrics` — клампить неизвестную `board_column` как в `board()`.
+- `cli/ui/chat.html`: обернуть числовые интерполяции (`estimate`, `usage_count`) в `esc()` для единообразия.
+**Файлы:** `cli/chat-server.mjs`, `lib/src/agile.ts`, `cli/ui/chat.html`.
+**Проверка:** B, T + **тест**: `task-move` без `taskId`→400 (не 500); неверный `column`→400.
+
+### Шаг 11 — Косметика и консистентность (minor-батч)
+**Что меняю:**
+- `cli/telegram-bot.mjs:289`: строку таймаута сделать динамической (`CHILD_TIMEOUT_MS`/60000 мин).
+- `lib/src/registry.ts:seedBuiltinAgents`: считать реально вставленные (`returning`/rowCount), не `n++`.
+- `lib/src/tenancy.ts`: синхронизировать константы TTL cleanup (15) и `LOGIN_CODE_TTL_MS` (10).
+- `schema/postgres/019`: поправить комментарий `argon2id`→`scrypt`.
+- `lib/src/tenancy.ts:resolveGroupSpace`: бэкофиллить `account_user` при существующей space-строке с null
+  (устранить churn orphan-user) — если правка локальна и безопасна; иначе пометить и оставить.
+**Файлы:** как перечислено.
+**Проверка:** B, T.
 
 ---
 
-## Блок E — Minor: данные и чистка
+## Осознанно ВНЕ объёма (с причиной)
 
-### E1 🟡 Импорт: Google Fit heart-points, finance «1,000»  (E8,E9)
-- Не мапить «Heart Points/Minutes» в heart_rate; `parseAmount` — эвристика тысяч/лог-warning.
-- **Файлы**: `lib/src/health-import.ts`, `lib/src/finance-import.ts` + тесты.
-
-### E2 🟡 Мелкие фиксы кода  (E7,E10,E11,G6,G8,G10,D4 + мёртвый код D1,D2)
-- `clearTimeout` в hard-timeout; `logHabit` → реальный id; `readThreads` при порче — бэкап, не терять; `mcp-result.wrap` — `Promise.resolve().then`; `buildDeps` переиспользовать пул (кэш по DSN); `.env`-парсер `export `; убрать алиас MAX_AUDIO_BYTES; мёртвый код (`listByDomain`,`renderSalient`) — удалить или `@internal` (вопрос 4).
-- **Файлы**: точечно. **Примечание**: пул (G8) — отдельный коммит.
-
-### E3 🟡 Схема/скрипты гигиена  (N2,N3,Q4,Q5,Q6,G11,D3-guard)
-- init-workspace убрать `shared_db_with_main_nabu`; синхронизировать дефолт whisper; `018_fk_indexes.sql` (аддитивно); коммент TQL-порядка; `016` DELETE в guard; экранировать `$job` в install-cron --remove; починить python-fallback в guard-web-privacy.
-- **Файлы**: по списку. **Проверка**: миграции идемпотентны; `test:hooks`.
-
-### E4 🟡 Копипаст мостов  (Q1,G9,Q7)
-- Вынести `extractAssistantText`+нарезку в `claude-run.mjs`; лимит длины message перед spawn; графемно-безопасная нарезка.
-- **Файлы**: `cli/claude-run.mjs`, `cli/chat-server.mjs`, `cli/telegram-bot.mjs`, `cli/nabu.mjs`.
+- **Группа-allowlist / membership-гейт (telegram-bot.mjs:1169)** — продуктовое решение (кто может создавать
+  проектные пространства публичным ботом), а не баг; требует твоего решения по политике. Помечу в AUDIT §5.
+- **orphan-kill ppid-фильтр (nabu.mjs:497)** — актуально лишь для мульти-демон-хоста (не модель OlimpOS
+  single-instance); правка рискует усложнить надёжный kill сирот. Оставляю, если не подтвердишь мульти-демон.
+- **consumeLoginCode атомарность (TOCTOU)** — тот же пользователь, не кросс-тенант; закрою заодно в Шаге 3,
+  если тривиально (single-statement claim+consume), иначе оставлю minor.
+- **timestamptz-драйвер TTL (tenancy.ts:139)** — зависит от формата драйвера; проверю при Шаге 3, правлю только при подтверждении.
 
 ---
 
-## Порядок и контрольные точки
-1. **A1–A4** → коммит на шаг; после A `test:hooks` обязателен.
-2. **B1–B6** → по коммиту; после B ручной smoke демона.
-3. **C1–C2** → по коммиту; unit-тесты.
-4. **D1–D3** → 1–2 коммита.
-5. **E1–E4** → тематические коммиты.
-Итог — Этап 5: обновить AUDIT.md.
+## Порядок и остановки
 
----
-
-## ⛔ СТОП — жду подтверждения
-
-Вопросы ДО правок:
-
-1. **Объём фикса демона (Блок B)**: быстрые async-обёртки (минимально инвазивно) — ок? Или глубже (worker-процесс)? *Рекомендую async-обёртки.*
-2. **Политика embedQuery (C2)**: разрешать поиск по `default`-базе на облачном эмбеддере без ALLOW_REMOTE (приватную память — только с opt-in)? *Рекомендую да — иначе на Jina/облаке поиск по библиотеке не работает.*
-3. **Crisis-фикстуры (A3)**: сейчас — privacy-фикстуры + фикс матчера, а crisis отдельной итерацией с твоей вычиткой «золотых» ответов? *Рекомендую так (safety-критично).*
-4. **Мёртвый код**: удалять `listByDomain`/`renderSalient` или оставить как точки расширения?
-5. **Границы**: guard динамических имён (`X=rm`) не покрываем (предел regex, энфорсер = approval); crisis-номера (N4) — твоя верификация вне кода. Согласен?
-
-Подтверди («делай по плану» + ответы 1–5) — начну с Блока A. Объём: **11 major + ~30 minor**; можно взять только major, или major+выбранные minor — скажи.
+Шаги 1→6 — критично/major, строго последовательно. Шаги 7→11 — minor-батчи, каждый самодостаточен.
+Если шаг ломает тесты и не чинится за 2–3 попытки — откат, пометка `blocked` здесь, переход к следующему.
+Итог — Этап 5: обновлю `AUDIT.md` (что исправлено/осталось/риски на твоё решение).
