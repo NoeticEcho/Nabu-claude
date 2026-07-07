@@ -45,10 +45,17 @@ export async function seedBuiltinAgents(pg: Postgres, slugs: string[]): Promise<
   return n;
 }
 
-/** Опубликовать личного агента в общий банк (shared) — доступен всем пользователям. */
+/**
+ * Опубликовать СВОЕГО личного агента в общий банк (shared). Скоуп по владельцу: публиковать можно
+ * только агента, у которого `origin_user` = вызывающий (или ещё не задан — тогда застолбить за ним).
+ * Без фильтра `origin_user` любой пользователь мог бы опубликовать ЧУЖОГО приватного агента (AUDIT R8 M1).
+ */
 export async function shareAgent(pg: Postgres, slug: string, originUser: string): Promise<boolean> {
+  if (!originUser) return false; // без владельца публиковать нечего (fail-closed)
   const r = await pg.query(
-    "update agent_registry set visibility='shared', origin_user=coalesce(origin_user,$2) where slug=$1 and visibility<>'builtin' returning slug",
+    `update agent_registry set visibility='shared', origin_user=$2
+     where slug=$1 and visibility<>'builtin' and (origin_user=$2 or origin_user is null)
+     returning slug`,
     [slug, originUser],
   );
   return r.length > 0;
