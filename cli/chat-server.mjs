@@ -1294,6 +1294,12 @@ export function startChatServer({
   // OlimpOS P2: web-auth (сессии/тенант) — активна только при NABU_MULTITENANT=1. Секрет подписи
   // сессий: NABU_SESSION_SECRET или производный из NABU_VAULT_KEY (стабилен между рестартами инстанса).
   const sessionSecret = process.env.NABU_SESSION_SECRET || process.env.NABU_VAULT_KEY || "nabu-dev-secret";
+  // AUDIT R8: на интернет-инстансе дефолтный секрет подписи сессий — недопустим. Не роняем локальный
+  // dev, но громко предупреждаем в много-тенанте (админ обязан задать NABU_SESSION_SECRET/NABU_VAULT_KEY).
+  if (process.env.NABU_MULTITENANT === "1" && sessionSecret === "nabu-dev-secret") {
+    log({ evt: "security_warning", message: "NABU_MULTITENANT=1, но секрет сессий не задан — используется дефолт 'nabu-dev-secret'. Задайте NABU_SESSION_SECRET (openssl rand -hex 32) или NABU_VAULT_KEY." });
+    console.warn("⚠️  [nabu] NABU_MULTITENANT=1, а NABU_SESSION_SECRET/NABU_VAULT_KEY не заданы — сессии подписаны дефолтным секретом. Задайте NABU_SESSION_SECRET перед публичным запуском.");
+  }
   const webAuth = createWebAuth({ repoRoot, secret: sessionSecret });
   const handler = createRequestHandler({ repoRoot, nabuHome, claudeBin, log, mcpConfigPath, webAuth });
   const server = createServer(handler);

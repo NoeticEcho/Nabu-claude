@@ -55,12 +55,25 @@ function sendJson(res, code, obj, headers = {}) {
   res.end(body);
 }
 
+// AUDIT R8: простой in-memory rate-limit (скользящее окно) против онлайн-брутфорса логина/регистрации/poll.
+const _rlBuckets = new Map(); // key -> { count, resetAt }
+function rateLimited(key, max = 8, windowMs = 60_000) {
+  const now = Date.now();
+  const e = _rlBuckets.get(key);
+  if (!e || e.resetAt < now) { _rlBuckets.set(key, { count: 1, resetAt: now + windowMs }); return false; }
+  e.count += 1;
+  return e.count > max;
+}
+
 /** Фабрика web-auth. secret — для подписи токена (HMAC), из NABU_SESSION_SECRET или производный. */
 export function createWebAuth({ repoRoot, secret }) {
   const sessions = new Map(); // token -> { userId, exp }
   const sign = (tok) => createHmac("sha256", secret).update(tok).digest("base64url");
+  // AUDIT R8: атрибут Secure на интернет-инстансе (NABU_MULTITENANT=1 всегда за HTTPS-прокси) — cookie
+  // не уходит по plaintext HTTP. В локальном одно-польз. режиме (http на 127.0.0.1) Secure не ставим.
+  const secureAttr = process.env.NABU_MULTITENANT === "1" ? "; Secure" : "";
   const makeCookie = (value, maxAgeMs) =>
-    `${COOKIE}=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(maxAgeMs / 1000)}`;
+    `${COOKIE}=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/${secureAttr}; Max-Age=${Math.floor(maxAgeMs / 1000)}`;
 
   function issue(userId) {
     const tok = randomBytes(24).toString("base64url");
@@ -93,6 +106,7 @@ export function createWebAuth({ repoRoot, secret }) {
       let b; try { b = JSON.parse((await readBody()) || "{}"); } catch { return sendJson(res, 400, { error: "bad_json" }), true; }
       const { email, password, displayName } = b;
       if (!email || !password || String(password).length < 8) return sendJson(res, 400, { error: "email+пароль (≥8 символов) обязательны" }), true;
+      if (rateLimited(`reg:${String(email).toLowerCase()}`)) return sendJson(res, 429, { error: "слишком много попыток, подождите минуту" }), true;
       try {
         const t = await lib.registerWebUser(pg, email, password, displayName);
         const token = issue(t.userId);
@@ -103,6 +117,7 @@ export function createWebAuth({ repoRoot, secret }) {
     if (method === "POST" && path === "/api/auth/login") {
       let b; try { b = JSON.parse((await readBody()) || "{}"); } catch { return sendJson(res, 400, { error: "bad_json" }), true; }
       const { email, password } = b;
+      if (email && rateLimited(`login:${String(email).toLowerCase()}`)) return sendJson(res, 429, { error: "слишком много попыток, подождите минуту" }), true;
       const t = email && password ? await lib.loginWebUser(pg, email, password) : null;
       if (!t) return sendJson(res, 401, { error: "неверный email или пароль" }), true;
       const token = issue(t.userId);
@@ -132,6 +147,7 @@ export function createWebAuth({ repoRoot, secret }) {
     if (method === "GET" && path === "/api/auth/telegram/poll") {
       const url = new URL(req.url, "http://localhost");
       const code = url.searchParams.get("code") || "";
+      if (rateLimited(`poll:${code}`, 60, 60_000)) return sendJson(res, 429, { error: "слишком часто" }), true;
       const t = code ? await lib.consumeLoginCode(pg, code) : null;
       if (!t) return sendJson(res, 200, { pending: true }), true;
       const token = issue(t.userId);
