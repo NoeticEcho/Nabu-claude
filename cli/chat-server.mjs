@@ -19,7 +19,9 @@ import { dirname, join, resolve as pathResolve, sep } from "node:path";
 // OlimpOS P6: безопасный путь внутри sites-root (анти-traversal) + content-type для сервинга spaces.
 function safeSitePath(sitesRoot, slug, relPath) {
   const safeSlug = String(slug).replace(/[^a-zA-Z0-9._-]/g, "");
-  if (!safeSlug) return null;
+  // AUDIT R8: defense-in-depth — явно отвергаем dot-slug (в проде недостижим: WHATWG URL схлопывает
+  // `..`-сегменты, а `%` вырезается выше; но не полагаемся на это).
+  if (!safeSlug || safeSlug === "." || safeSlug === "..") return null;
   const base = join(sitesRoot, safeSlug);
   const rel = (relPath === "" || relPath === "/") ? "index.html" : relPath.replace(/^\//, "");
   const full = join(base, rel);
@@ -28,8 +30,10 @@ function safeSitePath(sitesRoot, slug, relPath) {
 }
 function siteContentType(p) {
   const ext = p.slice(p.lastIndexOf(".")).toLowerCase();
+  // AUDIT R8: .svg отдаём как text/plain — SVG на публичном origin может нести inline-скрипт (stored XSS
+  // при прямой навигации). text/plain нейтрализует исполнение; <img src> обычно всё равно рендерит.
   return ({ ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".json": "application/json",
-    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "image/svg+xml", ".gif": "image/gif", ".webp": "image/webp" }[ext]) || "application/octet-stream";
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "text/plain; charset=utf-8", ".gif": "image/gif", ".webp": "image/webp" }[ext]) || "application/octet-stream";
 }
 import { allSharedConvs, isSharedConv, convTitle, roleOfConv } from "./conversations.mjs";
 

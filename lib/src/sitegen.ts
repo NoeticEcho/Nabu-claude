@@ -120,9 +120,8 @@ export function generateSite(srcDir: string, outDir: string, opts: { title?: str
 /** Безопасное разрешение пути внутри корня сайтов (анти-traversal для сервинга /s/<slug>/<path>). */
 export function resolveSitePath(siteRoot: string, slug: string, relPath: string): string | null {
   const safeSlug = String(slug).replace(/[^a-zA-Z0-9._-]/g, "");
-  if (!safeSlug) return null;
+  if (!safeSlug || safeSlug === "." || safeSlug === "..") return null; // AUDIT R8: явно отвергаем dot-slug
   const base = resolve(siteRoot, safeSlug);
-  const target = resolve(base, "." + (relPath.startsWith("/") ? relPath : "/" + relPath));
   const rel = relPath === "" || relPath === "/" ? "index.html" : relPath.replace(/^\//, "");
   const full = resolve(base, rel);
   return (full === base || full.startsWith(base + "/")) ? full : null;
