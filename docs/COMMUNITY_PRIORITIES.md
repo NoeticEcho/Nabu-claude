@@ -1,6 +1,6 @@
 # Приоритеты сообщества Nabu (авто-tally)
 
-Обновлено: 2026-07-06 · issues: 0 · скоринг v2: 👍 + 2×Σвес(evidence) + diversity (см. docs/COMMONS.md).
+Обновлено: 2026-07-13 · issues: 0 · скоринг v2: 👍 + 2×Σвес(evidence) + diversity (см. docs/COMMONS.md).
 Файл генерируется еженедельно workflow'ом commons-tally — не редактировать вручную.
 
 | # | Issue | Категория | 👍 | Evidence | Score |
