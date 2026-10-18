@@ -12,3 +12,6 @@ scratch/
 *.key
 .claude/
 __pycache__/
+
+# A test once ran with HOME unset and wrote its Telegram state under ./undefined/
+undefined/
